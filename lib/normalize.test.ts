@@ -141,6 +141,9 @@ test("hook rate e hold rate a partir das reproduções de vídeo", () => {
       ad_name: "vídeo",
       impressions: "2031",
       video_play_actions: [{ action_type: "video_view", value: "406" }],
+      video_p25_watched_actions: [{ action_type: "video_view", value: "284" }],
+      video_p50_watched_actions: [{ action_type: "video_view", value: "173" }],
+      video_p75_watched_actions: [{ action_type: "video_view", value: "112" }],
       video_p100_watched_actions: [{ action_type: "video_view", value: "81" }],
     },
     "ad",
@@ -148,6 +151,17 @@ test("hook rate e hold rate a partir das reproduções de vídeo", () => {
   assert.equal(row.videoPlays, 406);
   assert.ok(Math.abs(row.hookRate! - 406 / 2031) < 1e-9, "hook = plays / impressões");
   assert.ok(Math.abs(row.holdRate! - 81 / 406) < 1e-9, "hold = 100% / plays");
+
+  // Retenção divide por reproduções, não por impressões, e nunca sobe.
+  const r = row.retention!;
+  assert.ok(Math.abs(r.p25 - 284 / 406) < 1e-9, "p25 = 25% / plays");
+  assert.ok(Math.abs(r.p100 - row.holdRate!) < 1e-9, "p100 é o hold rate");
+  assert.ok(r.p25 >= r.p50 && r.p50 >= r.p75 && r.p75 >= r.p100, "curva é monotônica");
+});
+
+test("sem vídeo não há curva de retenção", () => {
+  const row = normalizeRow({ ad_id: "s1", ad_name: "estático", impressions: "900" }, "ad");
+  assert.equal(row.retention, null, "estático não tem retenção — nem zero");
 });
 
 test("mediana resiste ao outlier que a média não resistiria", () => {

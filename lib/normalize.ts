@@ -127,13 +127,21 @@ function firstValue(stats?: ActionStat[]): number | null {
 function videoMetrics(row: InsightRow, impressions: number) {
   const plays = firstValue(row.video_play_actions);
   if (plays === null || plays === 0) {
-    return { videoPlays: null, hookRate: null, holdRate: null };
+    return { videoPlays: null, hookRate: null, holdRate: null, retention: null };
   }
   const completions = firstValue(row.video_p100_watched_actions) ?? 0;
   return {
     videoPlays: plays,
     hookRate: impressions > 0 ? plays / impressions : null,
     holdRate: plays > 0 ? completions / plays : null,
+    // Retenção: cada marco como fração das reproduções iniciadas — não das
+    // impressões. Dividir por impressões misturaria quem nunca deu play.
+    retention: {
+      p25: (firstValue(row.video_p25_watched_actions) ?? 0) / plays,
+      p50: (firstValue(row.video_p50_watched_actions) ?? 0) / plays,
+      p75: (firstValue(row.video_p75_watched_actions) ?? 0) / plays,
+      p100: completions / plays,
+    },
   };
 }
 

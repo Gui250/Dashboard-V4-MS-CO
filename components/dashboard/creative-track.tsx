@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { count, money, moneyExact, percent, ratio } from "@/lib/format";
+import { count, decimal, money, moneyExact, percent, ratio } from "@/lib/format";
 import type { Creative, Row } from "@/lib/meta-types";
 
 type TrackMetric = "costPerResult" | "cpm" | "cpc";
@@ -353,6 +353,43 @@ function CreativeCover({
   );
 }
 
+/**
+ * Curva de retenção: quanto das reproduções sobrevive a cada quarto do vídeo.
+ * A queda entre 25% e 50% é onde o criativo perde a audiência.
+ */
+function Retention({
+  retention,
+}: {
+  retention: NonNullable<Row["retention"]>;
+}) {
+  const marks = [
+    ["25%", retention.p25],
+    ["50%", retention.p50],
+    ["75%", retention.p75],
+    ["100%", retention.p100],
+  ] as const;
+
+  return (
+    <div className="mt-4">
+      <p className="text-muted-foreground text-[11px]">Retenção do vídeo</p>
+      <div className="mt-2 flex gap-2">
+        {marks.map(([label, value]) => (
+          <div key={label} className="flex-1">
+            <div className="bg-ink h-1.5 overflow-hidden rounded-full">
+              <div
+                className="bg-foreground h-full rounded-full"
+                style={{ width: `${Math.min(100, Math.max(0, value * 100)).toFixed(1)}%` }}
+              />
+            </div>
+            <p className="tnum mt-1.5 text-xs">{ratio(value)}</p>
+            <p className="text-muted-foreground tnum text-[10px]">{label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CreativeDetail({
   item,
   median,
@@ -373,11 +410,12 @@ function CreativeDetail({
     ["CPC", moneyExact(row.cpc)],
     ["CPM", moneyExact(row.cpm)],
     [row.resultLabel ?? "Resultados", count(row.results)],
-    ["Custo/result.", moneyExact(row.costPerResult)],
+    ["CPA (custo/result.)", moneyExact(row.costPerResult)],
   ];
-  if (row.videoPlays !== null) {
-    stats.push(["Hook rate", ratio(row.hookRate)], ["Hold rate", ratio(row.holdRate)]);
-  }
+  // ROAS só existe com evento de compra no pixel. Sem ele a Meta devolve
+  // vazio, e uma célula "—" mentiria menos que um 0 mas ainda ocuparia espaço.
+  if (row.roas !== null) stats.push(["ROAS", `${decimal(row.roas)}×`]);
+  if (row.videoPlays !== null) stats.push(["Hook rate", ratio(row.hookRate)]);
 
   return (
     <div className="border-border bg-surface-raised mt-5 flex flex-col gap-4 rounded-md border p-4 sm:flex-row">
@@ -422,6 +460,8 @@ function CreativeDetail({
             </div>
           ))}
         </dl>
+
+        {row.retention && <Retention retention={row.retention} />}
 
         {row.quality && row.quality !== "UNKNOWN" && (
           <p className="text-muted-foreground mt-3.5 text-[11px]">

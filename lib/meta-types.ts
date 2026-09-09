@@ -98,6 +98,8 @@ export type Row = {
   videoPlays: number | null;
   hookRate: number | null;
   holdRate: number | null;
+  /** Fração das reproduções que chegou a cada marco do vídeo. */
+  retention: { p25: number; p50: number; p75: number; p100: number } | null;
 
   quality?: string;
   engagementRank?: string;

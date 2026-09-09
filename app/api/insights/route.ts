@@ -104,7 +104,7 @@ export async function GET(request: Request) {
       spend: 0, impressions: 0, reach: 0, frequency: 0, clicks: 0, linkClicks: 0,
       ctr: 0, linkCtr: 0, cpc: 0, cpm: 0, cpp: 0,
       results: null, resultLabel: null, costPerResult: null, roas: null, revenue: null,
-      videoPlays: null, hookRate: null, holdRate: null,
+      videoPlays: null, hookRate: null, holdRate: null, retention: null,
       actions: {}, costPerAction: {},
     };
 
