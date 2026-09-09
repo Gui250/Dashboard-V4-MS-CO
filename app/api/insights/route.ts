@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  accounts,
   getAccountMeta,
   getCreatives,
   getInsights,
   getPlatforms,
   getSeries,
+  resolveAccounts,
   median,
   MetaError,
   type Query,
@@ -25,7 +25,7 @@ const PRESETS = new Set([
 const isDate = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 export async function GET(request: Request) {
-  const allowed = accounts();
+  const allowed = await resolveAccounts();
   if (!allowed.length) {
     return NextResponse.json(
       { error: "Nenhuma conta configurada. Defina META_AD_ACCOUNTS no .env.local.", fatal: true },

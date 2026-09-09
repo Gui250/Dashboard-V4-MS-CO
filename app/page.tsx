@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { accounts, hasToken } from "@/lib/meta";
+import { hasToken, resolveAccounts } from "@/lib/meta";
 import { Dashboard } from "@/components/dashboard/dashboard";
 import { Setup } from "@/components/dashboard/setup";
 
@@ -9,8 +9,8 @@ import { Setup } from "@/components/dashboard/setup";
  */
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  const options = accounts();
+export default async function Page() {
+  const options = await resolveAccounts();
 
   // Sem token ou sem conta liberada não há painel possível — a primeira tela
   // é a de conexão, não uma mensagem mandando editar arquivo na mão.

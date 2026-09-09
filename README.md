@@ -28,21 +28,31 @@ O token **nunca** vai para o `localStorage` nem para o bundle do browser. A tela
 só recebe de volta uma versão mascarada (`EAAG12••••••••9876`) — o valor cheio
 não trafega no sentido servidor → cliente.
 
-Gravar credencial pela tela é liberado a partir da **própria máquina**, inclusive
-em build de produção — `npm start` no seu computador não é "exposto na internet".
-Requisições vindas de fora (outro dispositivo na rede, ou um deploy) precisam de
-`ALLOW_REMOTE_SETTINGS=1` explícito.
+Não há portão por origem da requisição. Já houve — duas versões dele — e as duas
+bloquearam o dono na própria máquina enquanto protegiam pouco. O controle real é
+a variável de ambiente: onde ela está definida, a tela não grava. E em serverless
+(Vercel, Lambda) o disco é somente leitura, então a gravação falha sozinha, com
+mensagem explicando o porquê.
 
-A origem é lida do `x-forwarded-for`, que o Next preenche em toda requisição com
-o endereço de quem conectou. Forjar o `Host` não engana, mas quem já alcança a
-porta pode forjar o próprio `x-forwarded-for`. A checagem é proporcional ao
-estrago possível: como o `GET` só devolve máscara, **o formulário não vaza o
-token** — o pior caso é alguém sobrescrever a credencial e quebrar o painel.
+> **Este painel não tem login.** Quem abrir a URL vê o gasto da conta. Essa é a
+> exposição que importa num deploy — o formulário de credencial não é, porque o
+> `GET` só devolve máscara e o token nunca sai pelo fio. Antes de publicar: ponha
+> autenticação na frente e passe o token por `META_ACCESS_TOKEN` no ambiente.
 
-> Se você publicar isto, o formulário não é a exposição que importa: o painel
-> inteiro não tem autenticação, e qualquer um com a URL vê o gasto da conta.
-> Ponha login na frente antes de expor, e prefira `META_ACCESS_TOKEN` no
-> ambiente (a tela então fica só de leitura).
+## Publicar (Vercel e afins)
+
+Lá a tela **não** consegue salvar: o disco é somente leitura. As credenciais têm
+que vir das variáveis de ambiente do serviço.
+
+| Variável | |
+|---|---|
+| `META_ACCESS_TOKEN` | obrigatória |
+| `META_AD_ACCOUNTS` | opcional — sem ela o painel descobre as contas pelo token |
+| `META_APP_SECRET` | opcional |
+| `META_API_VERSION` | opcional, padrão `v26.0` |
+
+Com o token definido, a tela de configuração fica só de leitura, que é o
+comportamento correto em servidor.
 
 ## Gerar o token da Meta
 

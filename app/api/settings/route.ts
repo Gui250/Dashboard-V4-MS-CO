@@ -10,46 +10,22 @@ import {
 } from "@/lib/credentials";
 import { verifyToken } from "@/lib/meta";
 
-const LOOPBACK = new Set(["::1", "127.0.0.1", "::ffff:127.0.0.1", "localhost"]);
-
 /**
- * Escrever credencial é ação privilegiada — mas com o peso certo:
+ * Onde este painel guarda credencial é decisão de quem o hospeda, não de uma
+ * heurística sobre a origem da requisição:
  *
- * O formulário NÃO expõe o token. O GET só devolve `mask()`, então o pior que
- * um estranho faz aqui é sobrescrever a credencial e quebrar o painel de quem
- * o publicou: vandalismo, não roubo. (Num deploy, a exposição que de fato
- * importa é outra — o painel inteiro não tem autenticação nenhuma.)
+ * - `META_ACCESS_TOKEN` no ambiente vence e deixa a tela só de leitura. É o
+ *   controle de produção, e é não-falsificável.
+ * - Sem isso, a tela grava em arquivo. Em serverless o disco é somente leitura
+ *   e a gravação falha sozinha, com a mensagem abaixo.
  *
- * Por isso o portão libera a própria máquina mesmo em build de produção:
- * `npm start` no seu computador não é "exposto na internet", e travar isso
- * bloqueava o dono sem proteger nada.
- *
- * O Next preenche `x-forwarded-for` em TODA requisição, com o endereço de quem
- * conectou (`::1` no localhost, o IP real pela rede) — não é preciso proxy para
- * o header existir. Havendo proxy de verdade (Vercel, nginx), o primeiro
- * endereço da lista é o do cliente de origem, que é o que interessa aqui.
- *
- * LIMITE CONHECIDO: um cliente que já alcança a porta pode forjar esse header e
- * se passar por local. A checagem só carrega peso porque o estrago possível é
- * vandalismo, não vazamento de segredo. Onde isso não bastar, use
- * META_ACCESS_TOKEN no ambiente e a tela fica só de leitura.
+ * Não há portão por endereço de origem. Já houve, e ele bloqueava o dono na
+ * própria máquina enquanto protegia pouco: o `GET` só devolve `mask()`, então o
+ * formulário não vaza o token — o pior caso é vandalismo. E a exposição que
+ * importa num deploy é outra: o painel inteiro não tem autenticação.
  */
-function writable(request: Request): { ok: true } | { ok: false; message: string } {
-  if (process.env.ALLOW_REMOTE_SETTINGS === "1") return { ok: true };
-  if (process.env.NODE_ENV !== "production") return { ok: true };
-
-  const client = (request.headers.get("x-forwarded-for") ?? "")
-    .split(",")[0]
-    .trim()
-    .toLowerCase();
-  if (LOOPBACK.has(client)) return { ok: true };
-
-  return {
-    ok: false,
-    message:
-      "Esta requisição não veio da máquina onde o painel roda, então a tela não grava credencial. Defina META_ACCESS_TOKEN nas variáveis de ambiente do servidor, ou ALLOW_REMOTE_SETTINGS=1 para liberar a tela — e nesse caso ponha autenticação na frente do painel, que hoje não tem nenhuma.",
-  };
-}
+const READ_ONLY_FS =
+  "Este servidor não permite gravar arquivos, então a tela não pode salvar a credencial. Defina META_ACCESS_TOKEN nas variáveis de ambiente do serviço.";
 
 /** Estado atual, sempre mascarado — o token cheio nunca volta ao browser. */
 export async function GET() {
@@ -66,9 +42,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const gate = writable(request);
-  if (!gate.ok) return NextResponse.json({ error: gate.message }, { status: 403 });
-
   const locked = lockedByEnv();
   if (locked.accessToken) {
     return NextResponse.json(
@@ -123,7 +96,13 @@ export async function POST(request: Request) {
     );
   }
 
-  saveCredentials({ accessToken, appSecret, apiVersion, accounts });
+  try {
+    saveCredentials({ accessToken, appSecret, apiVersion, accounts });
+  } catch {
+    // Em serverless (Vercel, Lambda) o diretório do app é somente leitura.
+    // É o sinal honesto de "aqui não dá" — não uma heurística sobre a origem.
+    return NextResponse.json({ error: READ_ONLY_FS }, { status: 501 });
+  }
 
   return NextResponse.json({
     ok: true,
@@ -134,9 +113,11 @@ export async function POST(request: Request) {
   });
 }
 
-export async function DELETE(request: Request) {
-  const gate = writable(request);
-  if (!gate.ok) return NextResponse.json({ error: gate.message }, { status: 403 });
-  clearCredentials();
+export async function DELETE() {
+  try {
+    clearCredentials();
+  } catch {
+    return NextResponse.json({ error: READ_ONLY_FS }, { status: 501 });
+  }
   return NextResponse.json({ ok: true });
 }

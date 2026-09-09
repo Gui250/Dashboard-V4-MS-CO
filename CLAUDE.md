@@ -59,18 +59,27 @@ Precedência: **variáveis de ambiente vencem sempre**, senão
 tela de configuração. Quando o env define um campo, `lockedByEnv()` marca e a
 tela desabilita — formulário web não sobrescreve o que a plataforma define.
 
-O token nunca vai ao browser: só `mask()` atravessa o fio. Gravar pela tela é
-liberado em dev e, em build de produção, para requisições da própria máquina;
-de fora exige `ALLOW_REMOTE_SETTINGS=1`.
+O token nunca vai ao browser: só `mask()` atravessa o fio.
 
-A origem sai do **`x-forwarded-for`, que o Next preenche em TODA requisição**
-com o endereço de quem conectou — não é preciso proxy para o header existir.
-(Uma versão anterior do portão testava "existe header de proxy?" para inferir
-deploy: como o Next sempre põe o header, aquilo bloqueava até o localhost.)
-O limite é conhecido e está comentado no código: quem alcança a porta pode
-forjar o header. A checagem é proporcional porque o `GET` só devolve máscara —
-o formulário não vaza o token, o pior caso é vandalismo. A exposição séria num
-deploy é outra: **o painel não tem autenticação nenhuma**.
+**Não há portão por origem da requisição, e não adicione um.** Já existiram dois:
+o primeiro testava o header `Host` (falsificável); o segundo testava `NODE_ENV` +
+"existe header de proxy?" — e como o Next preenche `x-forwarded-for` em TODA
+requisição, com ou sem proxy, ele bloqueava até o localhost. Ambos travaram o
+dono da máquina e protegiam pouco: o `GET` só devolve máscara, então o formulário
+não vaza o token; o pior caso é vandalismo.
+
+`resolveAccounts()` (`lib/meta.ts`) descobre as contas via `/me/adaccounts`
+quando há token mas nenhuma lista configurada. Sem isso, um deploy com só
+`META_ACCESS_TOKEN` fica preso: sem contas a home cai na tela de conexão, que
+está travada pelo ambiente e não grava em disco somente leitura.
+
+Os controles que sobraram são reais e não-heurísticos:
+- `META_ACCESS_TOKEN` no ambiente vence e deixa a tela só de leitura (409 no POST).
+- Em serverless o disco é somente leitura; `saveCredentials` lança e vira 501 com
+  mensagem, em vez de 500 mudo.
+
+A exposição séria num deploy é outra: **o painel não tem autenticação nenhuma**,
+e quem abrir a URL vê o gasto da conta.
 
 `app/page.tsx` tem `export const dynamic = "force-dynamic"` porque lê estado
 mutável do disco. Sem isso a home é prerenderizada no build e fica presa na tela

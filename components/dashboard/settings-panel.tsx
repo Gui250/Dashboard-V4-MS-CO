@@ -222,13 +222,20 @@ export function SettingsPanel({
         </section>
       )}
 
-      <p className="text-muted-foreground mt-7 text-xs leading-relaxed">
-        O token é gravado em <code className="tnum">.meta-credentials.json</code> na raiz
-        do projeto, com permissão <code className="tnum">0600</code> e fora do Git. Ele
-        nunca é guardado no browser nem devolvido por esta tela — só a versão mascarada.
-        Em servidor, prefira a variável de ambiente{" "}
-        <code className="tnum">META_ACCESS_TOKEN</code>.
-      </p>
+      <div className="text-muted-foreground mt-7 space-y-2.5 text-xs leading-relaxed">
+        <p>
+          O token é gravado em <code className="tnum">.meta-credentials.json</code> na
+          raiz do projeto, com permissão <code className="tnum">0600</code> e fora do
+          Git. Ele nunca é guardado no browser nem devolvido por esta tela — só a versão
+          mascarada.
+        </p>
+        <p className="border-line-bright border-l-2 pl-3">
+          Este painel não tem login: quem abrir a URL vê o gasto da conta. Rodando na sua
+          máquina, tudo bem. Antes de publicar, ponha autenticação na frente e passe o
+          token por <code className="tnum">META_ACCESS_TOKEN</code> no ambiente do
+          serviço — a tela então fica só de leitura.
+        </p>
+      </div>
     </div>
   );
 }

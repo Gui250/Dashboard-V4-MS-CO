@@ -382,3 +382,35 @@ export async function verifyToken(
 
   return { ok: true, accounts: discovered, discovered: discovered.length > 0 };
 }
+
+/**
+ * Lista de contas do seletor, com descoberta automática.
+ *
+ * Num deploy é comum definir só `META_ACCESS_TOKEN` e esquecer
+ * `META_AD_ACCOUNTS`. Sem isto o painel ficaria preso: sem contas ele cai na
+ * tela de conexão, que está travada pelo ambiente e não consegue gravar em
+ * disco somente leitura. O token já dá acesso à lista — então busque.
+ */
+export async function resolveAccounts(): Promise<AdAccount[]> {
+  const configured = accounts();
+  if (configured.length || !hasToken()) return configured;
+
+  try {
+    const { data } = await metaFetch<{
+      data?: { account_id?: string; name?: string }[];
+    }>(
+      "me/adaccounts",
+      { fields: "account_id,name", limit: "200" },
+      REVALIDATE_CREATIVES,
+    );
+    return (data ?? [])
+      .filter((account) => account.account_id)
+      .map((account) => ({
+        id: account.account_id!,
+        name: account.name?.trim() || account.account_id!,
+      }));
+  } catch {
+    // Token inválido ou sem permissão: a tela de conexão explica o problema.
+    return [];
+  }
+}
