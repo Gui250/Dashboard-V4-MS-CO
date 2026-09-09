@@ -10,23 +10,44 @@ import {
 } from "@/lib/credentials";
 import { verifyToken } from "@/lib/meta";
 
+const LOOPBACK = new Set(["::1", "127.0.0.1", "::ffff:127.0.0.1", "localhost"]);
+
 /**
- * Escrever credencial é ação privilegiada. Local, é conveniência; exposto na
- * internet sem login, seria um formulário aberto para trocar o token da conta
- * de anúncios de outra pessoa.
+ * Escrever credencial é ação privilegiada — mas com o peso certo:
  *
- * O portão é o modo de execução, não o header Host: Host vem do cliente e
- * bastaria mandar "Host: localhost" para burlar. Uma checagem falsificável que
- * parece segurança é pior que checagem nenhuma. Em build de produção, gravar
- * pela tela exige opt-in explícito de quem controla o servidor.
+ * O formulário NÃO expõe o token. O GET só devolve `mask()`, então o pior que
+ * um estranho faz aqui é sobrescrever a credencial e quebrar o painel de quem
+ * o publicou: vandalismo, não roubo. (Num deploy, a exposição que de fato
+ * importa é outra — o painel inteiro não tem autenticação nenhuma.)
+ *
+ * Por isso o portão libera a própria máquina mesmo em build de produção:
+ * `npm start` no seu computador não é "exposto na internet", e travar isso
+ * bloqueava o dono sem proteger nada.
+ *
+ * O Next preenche `x-forwarded-for` em TODA requisição, com o endereço de quem
+ * conectou (`::1` no localhost, o IP real pela rede) — não é preciso proxy para
+ * o header existir. Havendo proxy de verdade (Vercel, nginx), o primeiro
+ * endereço da lista é o do cliente de origem, que é o que interessa aqui.
+ *
+ * LIMITE CONHECIDO: um cliente que já alcança a porta pode forjar esse header e
+ * se passar por local. A checagem só carrega peso porque o estrago possível é
+ * vandalismo, não vazamento de segredo. Onde isso não bastar, use
+ * META_ACCESS_TOKEN no ambiente e a tela fica só de leitura.
  */
-function writable(): { ok: true } | { ok: false; message: string } {
+function writable(request: Request): { ok: true } | { ok: false; message: string } {
   if (process.env.ALLOW_REMOTE_SETTINGS === "1") return { ok: true };
   if (process.env.NODE_ENV !== "production") return { ok: true };
+
+  const client = (request.headers.get("x-forwarded-for") ?? "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (LOOPBACK.has(client)) return { ok: true };
+
   return {
     ok: false,
     message:
-      "Em produção, as credenciais vêm das variáveis de ambiente. Defina META_ACCESS_TOKEN no servidor, ou ALLOW_REMOTE_SETTINGS=1 para liberar esta tela (só faça isso atrás de autenticação).",
+      "Esta requisição não veio da máquina onde o painel roda, então a tela não grava credencial. Defina META_ACCESS_TOKEN nas variáveis de ambiente do servidor, ou ALLOW_REMOTE_SETTINGS=1 para liberar a tela — e nesse caso ponha autenticação na frente do painel, que hoje não tem nenhuma.",
   };
 }
 
@@ -45,7 +66,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const gate = writable();
+  const gate = writable(request);
   if (!gate.ok) return NextResponse.json({ error: gate.message }, { status: 403 });
 
   const locked = lockedByEnv();
@@ -113,8 +134,8 @@ export async function POST(request: Request) {
   });
 }
 
-export async function DELETE() {
-  const gate = writable();
+export async function DELETE(request: Request) {
+  const gate = writable(request);
   if (!gate.ok) return NextResponse.json({ error: gate.message }, { status: 403 });
   clearCredentials();
   return NextResponse.json({ ok: true });

@@ -60,9 +60,17 @@ tela de configuração. Quando o env define um campo, `lockedByEnv()` marca e a
 tela desabilita — formulário web não sobrescreve o que a plataforma define.
 
 O token nunca vai ao browser: só `mask()` atravessa o fio. Gravar pela tela é
-liberado em dev; em build de produção exige `ALLOW_REMOTE_SETTINGS=1`. Esse
-portão olha `NODE_ENV`, **não** o header `Host` — `Host` vem do cliente e seria
-falsificável.
+liberado em dev e, em build de produção, para requisições da própria máquina;
+de fora exige `ALLOW_REMOTE_SETTINGS=1`.
+
+A origem sai do **`x-forwarded-for`, que o Next preenche em TODA requisição**
+com o endereço de quem conectou — não é preciso proxy para o header existir.
+(Uma versão anterior do portão testava "existe header de proxy?" para inferir
+deploy: como o Next sempre põe o header, aquilo bloqueava até o localhost.)
+O limite é conhecido e está comentado no código: quem alcança a porta pode
+forjar o header. A checagem é proporcional porque o `GET` só devolve máscara —
+o formulário não vaza o token, o pior caso é vandalismo. A exposição séria num
+deploy é outra: **o painel não tem autenticação nenhuma**.
 
 `app/page.tsx` tem `export const dynamic = "force-dynamic"` porque lê estado
 mutável do disco. Sem isso a home é prerenderizada no build e fica presa na tela

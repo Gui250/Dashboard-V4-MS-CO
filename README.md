@@ -28,11 +28,21 @@ O token **nunca** vai para o `localStorage` nem para o bundle do browser. A tela
 só recebe de volta uma versão mascarada (`EAAG12••••••••9876`) — o valor cheio
 não trafega no sentido servidor → cliente.
 
-Gravar credencial pela tela é liberado em desenvolvimento. Em build de produção
-exige `ALLOW_REMOTE_SETTINGS=1` explícito — sem isso, um painel publicado sem
-login seria um formulário aberto para trocar o token da conta de anúncios.
-O portão olha o modo de execução, não o header `Host`: `Host` vem do cliente e
-bastaria mandar `Host: localhost` para burlar.
+Gravar credencial pela tela é liberado a partir da **própria máquina**, inclusive
+em build de produção — `npm start` no seu computador não é "exposto na internet".
+Requisições vindas de fora (outro dispositivo na rede, ou um deploy) precisam de
+`ALLOW_REMOTE_SETTINGS=1` explícito.
+
+A origem é lida do `x-forwarded-for`, que o Next preenche em toda requisição com
+o endereço de quem conectou. Forjar o `Host` não engana, mas quem já alcança a
+porta pode forjar o próprio `x-forwarded-for`. A checagem é proporcional ao
+estrago possível: como o `GET` só devolve máscara, **o formulário não vaza o
+token** — o pior caso é alguém sobrescrever a credencial e quebrar o painel.
+
+> Se você publicar isto, o formulário não é a exposição que importa: o painel
+> inteiro não tem autenticação, e qualquer um com a URL vê o gasto da conta.
+> Ponha login na frente antes de expor, e prefira `META_ACCESS_TOKEN` no
+> ambiente (a tela então fica só de leitura).
 
 ## Gerar o token da Meta
 
