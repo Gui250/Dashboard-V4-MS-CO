@@ -1,26 +1,170 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-bright: var(--line-bright);
+  --color-v4: var(--v4);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-archivo);
+  --font-mono: var(--font-jetbrains);
+  --font-heading: var(--font-archivo);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+ * V4 Company MS&CO — instrumentação, não apresentação.
+ * A tela é preta e branca até algo dar errado. O vermelho é a única cor, e
+ * significa uma coisa só: este criativo está caro. Um par verde/vermelho
+ * espalhado por quarenta células ensina o olho a ignorar os dois.
+ */
+:root {
+  color-scheme: dark;
+
+  --ink: #0a0a0b;
+  --surface: #141416;
+  --surface-raised: #1b1b1f;
+  --line: #26262a;
+  --line-bright: #34343a;
+  --v4: #e00a16;
+  --v4-dim: #7a0a11;
+
+  --background: var(--ink);
+  --foreground: #f2f2f0;
+  --card: var(--surface);
+  --card-foreground: #f2f2f0;
+  --popover: var(--surface-raised);
+  --popover-foreground: #f2f2f0;
+  --primary: #f2f2f0;
+  --primary-foreground: var(--ink);
+  --secondary: var(--surface-raised);
+  --secondary-foreground: #f2f2f0;
+  --muted: var(--surface-raised);
+  --muted-foreground: #8a8a92;
+  --accent: var(--surface-raised);
+  --accent-foreground: #f2f2f0;
+  --destructive: var(--v4);
+  --border: var(--line);
+  --input: var(--line-bright);
+  --ring: #6a6a74;
+
+  /* Séries em escala de cinza: a cor fica reservada para o alerta. */
+  --chart-1: #f2f2f0;
+  --chart-2: #8a8a92;
+  --chart-3: #5a5a62;
+  --chart-4: #3d3d44;
+  --chart-5: var(--v4);
+
+  --radius: 0.375rem;
+  --sidebar: var(--surface);
+  --sidebar-foreground: #f2f2f0;
+  --sidebar-primary: #f2f2f0;
+  --sidebar-primary-foreground: var(--ink);
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: #f2f2f0;
+  --sidebar-border: var(--line);
+  --sidebar-ring: #6a6a74;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+@layer base {
+  /* Todo número do painel é tabular: colunas de dinheiro alinham na vírgula. */
+  .tnum {
+    font-family: var(--font-jetbrains), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .eyebrow {
+    font-family: var(--font-archivo), system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* Foco visível de verdade, sobre fundo escuro. */
+  :focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+    border-radius: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * O único momento de movimento do painel: quando o refresh de 2 min traz um
+ * número diferente, só aquele número pisca. É o "tempo real" ficando visível
+ * em vez de ser uma promessa no título.
+ */
+@keyframes tick {
+  0% { background-color: color-mix(in srgb, var(--foreground) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.ticked {
+  animation: tick 600ms ease-out;
+  border-radius: 3px;
+  box-decoration-break: clone;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticked {
+    animation: none;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

@@ -1,0 +1,444 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { count, money, moneyExact, percent, ratio } from "@/lib/format";
+import type { Creative, Row } from "@/lib/meta-types";
+
+type TrackMetric = "costPerResult" | "cpm" | "cpc";
+
+const METRICS: { value: TrackMetric; label: string; help: string }[] = [
+  { value: "costPerResult", label: "Custo por resultado", help: "custo por resultado" },
+  { value: "cpm", label: "CPM", help: "custo por mil impressões" },
+  { value: "cpc", label: "CPC", help: "custo por clique" },
+];
+
+/** Quantas vezes o custo do criativo supera a mediana antes de virar alerta. */
+const ALERT_THRESHOLD = 2;
+
+/** Miniatura (44px) + anel + folga: o espaço que duas vizinhas precisam ter. */
+const THUMB_CLEARANCE_PX = 60;
+
+type Plotted = {
+  row: Row;
+  creative?: Creative;
+  value: number;
+  x: number;
+  lane: number;
+  index: number;
+};
+
+/**
+ * Distribui em faixas para que miniaturas próximas não se sobreponham.
+ * Guloso: cada uma vai para a faixa mais alta ainda livre naquela posição.
+ */
+function assignLanes(items: Omit<Plotted, "lane">[], minGap: number): Plotted[] {
+  const lastX: number[] = [];
+  return items.map((item) => {
+    let lane = lastX.findIndex((x) => item.x - x >= minGap);
+    if (lane === -1) lane = lastX.length;
+    lastX[lane] = item.x;
+    return { ...item, lane };
+  });
+}
+
+export function CreativeTrack({
+  ads,
+  creatives,
+  selectedAd,
+  onSelect,
+}: {
+  ads: Row[];
+  creatives: Creative[];
+  selectedAd: string;
+  onSelect: (adId: string) => void;
+}) {
+  const [metric, setMetric] = useState<TrackMetric>("costPerResult");
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  // A folga mínima entre miniaturas é em pixels, mas as posições são em %.
+  // Sem medir o trilho, a mesma porcentagem sobrepõe no celular e desperdiça
+  // faixas no monitor.
+  const rail = useRef<HTMLDivElement>(null);
+  const [railWidth, setRailWidth] = useState(0);
+
+  useEffect(() => {
+    const element = rail.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setRailWidth(entry.contentRect.width),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const byAdId = useMemo(
+    () => new Map(creatives.map((creative) => [creative.adId, creative])),
+    [creatives],
+  );
+
+  const { plotted, min, max, median, unplotted, spread } = useMemo(() => {
+    const withValue = ads
+      .map((row) => ({ row, value: row[metric] }))
+      .filter((item): item is { row: Row; value: number } =>
+        typeof item.value === "number" && Number.isFinite(item.value) && item.value > 0,
+      )
+      .sort((a, b) => a.value - b.value);
+
+    if (withValue.length === 0) {
+      return { plotted: [], min: 0, max: 0, median: null, unplotted: ads.length, spread: 1 };
+    }
+
+    const values = withValue.map((item) => item.value);
+    const lo = values[0];
+    const hi = values[values.length - 1];
+    const mid = Math.floor(values.length / 2);
+    const med =
+      values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+
+    // Escala logarítmica: sem ela, um criativo 56x mais caro esmaga todos os
+    // outros contra a borda esquerda e a pista não mostra nada.
+    const logLo = Math.log(lo);
+    const logHi = Math.log(hi);
+    const span = logHi - logLo;
+
+    const items = withValue.map((item, index) => ({
+      ...item,
+      creative: byAdId.get(item.row.id),
+      index,
+      // Margem nas pontas para a miniatura do extremo não ser cortada.
+      // Arredondado: float longo em `left:%` diverge entre servidor e cliente.
+      x: Number(
+        (span > 0 ? 3 + ((Math.log(item.value) - logLo) / span) * 94 : 50).toFixed(3),
+      ),
+    }));
+
+    return {
+      plotted: assignLanes(items, railWidth > 0 ? (THUMB_CLEARANCE_PX / railWidth) * 100 : 6),
+      min: lo,
+      max: hi,
+      median: med,
+      unplotted: ads.length - withValue.length,
+      spread: lo > 0 ? hi / lo : 1,
+    };
+  }, [ads, byAdId, metric, railWidth]);
+
+  const lanes = Math.max(1, ...plotted.map((item) => item.lane + 1));
+  const medianX =
+    median !== null && max > min
+      ? Number(
+          (3 + ((Math.log(median) - Math.log(min)) / (Math.log(max) - Math.log(min))) * 94).toFixed(3),
+        )
+      : 50;
+
+  const focused = hovered ?? selectedAd;
+  // Sem cursor e sem seleção, o painel abre no criativo mais caro — é o que
+  // precisa de atenção, e mantém a capa sempre na tela.
+  const active = focused
+    ? plotted.find((item) => item.row.id === focused)
+    : plotted.at(-1);
+  const showingDefault = !focused && Boolean(active);
+
+  return (
+    <section
+      aria-label="Pista de criativos"
+      className="border-border bg-card rounded-lg border p-5"
+    >
+      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <h2 className="eyebrow">Pista de criativos</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {plotted.length > 1 ? (
+              <>
+                O mais caro custa{" "}
+                <strong
+                  className={cn(
+                    "tnum font-semibold",
+                    spread >= 10 ? "text-destructive" : "text-foreground",
+                  )}
+                >
+                  {spread.toFixed(spread >= 10 ? 0 : 1).replace(".", ",")}×
+                </strong>{" "}
+                o mais barato.
+              </>
+            ) : (
+              "Cada anúncio posicionado pelo seu custo, em escala logarítmica."
+            )}
+          </p>
+        </div>
+
+        <div
+          role="group"
+          aria-label="Métrica da pista"
+          className="border-border flex overflow-hidden rounded-md border text-xs"
+        >
+          {METRICS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setMetric(option.value)}
+              aria-pressed={metric === option.value}
+              className={cn(
+                "px-3 py-1.5 font-medium transition-colors",
+                metric === option.value
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {plotted.length === 0 ? (
+        <p className="text-muted-foreground py-10 text-center text-sm">
+          Nenhum anúncio com {METRICS.find((m) => m.value === metric)?.help} no período.
+        </p>
+      ) : (
+        <>
+          <div
+            ref={rail}
+            className="relative mx-1"
+            style={{ height: `${lanes * 58 + 26}px` }}
+            onMouseLeave={() => setHovered(null)}
+          >
+            {/* O trilho. A distância ao longo dele é o dado. */}
+            <div className="bg-border absolute inset-x-0 top-0 h-px" />
+
+            {median !== null && plotted.length > 2 && (
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 -translate-x-1/2"
+                style={{ left: `${medianX}%` }}
+                aria-hidden
+              >
+                <div className="bg-line-bright h-full w-px" />
+                <span className="text-muted-foreground tnum absolute -bottom-0.5 left-1.5 text-[10px] whitespace-nowrap">
+                  mediana {moneyExact(median)}
+                </span>
+              </div>
+            )}
+
+            {plotted.map((item) => {
+              const ratioToMedian = median ? item.value / median : 1;
+              const alert = ratioToMedian >= ALERT_THRESHOLD;
+              const selected = selectedAd === item.row.id;
+              const creative = item.creative;
+
+              return (
+                <button
+                  key={item.row.id}
+                  type="button"
+                  onMouseEnter={() => setHovered(item.row.id)}
+                  onFocus={() => setHovered(item.row.id)}
+                  onBlur={() => setHovered(null)}
+                  onClick={() => onSelect(selected ? "" : item.row.id)}
+                  aria-pressed={selected}
+                  aria-label={`${item.row.name}. ${METRICS.find((m) => m.value === metric)?.help} ${moneyExact(item.value)}${alert ? ". Acima do dobro da mediana." : ""}`}
+                  className="absolute -translate-x-1/2 transition-transform duration-150 hover:z-20 hover:scale-110"
+                  style={{
+                    left: `${item.x}%`,
+                    top: `${20 + item.lane * 58}px`,
+                    zIndex: selected || hovered === item.row.id ? 20 : 10 - item.lane,
+                  }}
+                >
+                  <span
+                    className={cn(
+                      "block size-11 overflow-hidden rounded ring-2 ring-offset-2",
+                      "ring-offset-card bg-secondary",
+                      alert
+                        ? "ring-destructive"
+                        : selected
+                          ? "ring-foreground"
+                          : "ring-transparent",
+                      selectedAd && !selected && "opacity-40",
+                    )}
+                  >
+                    {creative?.thumbnailUrl ? (
+                      /* URL assinada e efêmera do CDN da Meta — next/image
+                         tentaria cachear o que expira em horas. */
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={creative.thumbnailUrl}
+                        alt=""
+                        loading="lazy"
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-muted-foreground tnum flex size-full items-center justify-center text-[10px]">
+                        {item.index + 1}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-muted-foreground mt-3 flex items-baseline justify-between gap-4 text-[11px]">
+            <span>
+              ◄ eficiente <span className="tnum text-foreground">{moneyExact(min)}</span>
+            </span>
+            {unplotted > 0 && (
+              <span className="truncate">
+                {unplotted} anúncio{unplotted > 1 ? "s" : ""} sem essa métrica no período
+              </span>
+            )}
+            <span>
+              <span className="tnum text-destructive">{moneyExact(max)}</span> caro ►
+            </span>
+          </div>
+
+          {active && (
+            <CreativeDetail
+              item={active}
+              median={median}
+              isDefault={showingDefault}
+            />
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Meta serve thumbnail em URL de CDN assinada, que caduca em horas. Quando
+ * caduca, o navegador mostraria o ícone de imagem quebrada — o placeholder
+ * evita isso e diz o que houve.
+ */
+function CreativeCover({
+  url,
+  alert,
+  position,
+}: {
+  url: string | null;
+  alert: boolean;
+  position: number;
+}) {
+  const [broken, setBroken] = useState(false);
+  const ring = alert ? "ring-destructive" : "ring-line-bright";
+
+  if (!url || broken) {
+    return (
+      <span
+        className={cn(
+          "bg-ink flex h-[140px] w-[112px] shrink-0 self-start flex-col items-center justify-center gap-1 rounded ring-1 sm:h-[168px] sm:w-[134px]",
+          ring,
+        )}
+      >
+        <span className="text-muted-foreground tnum text-lg">{position}</span>
+        <span className="text-muted-foreground text-[10px]">sem prévia</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "bg-ink flex h-[140px] shrink-0 self-start items-center justify-center overflow-hidden rounded ring-1 sm:h-[168px]",
+        ring,
+      )}
+    >
+      {/* URL assinada e efêmera do CDN da Meta — next/image tentaria cachear
+          o que expira em horas. Já veio no cache pela miniatura da pista. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt=""
+        onError={() => setBroken(true)}
+        className="h-full w-auto max-w-[240px] object-contain"
+      />
+    </span>
+  );
+}
+
+function CreativeDetail({
+  item,
+  median,
+  isDefault,
+}: {
+  item: Plotted;
+  median: number | null;
+  isDefault: boolean;
+}) {
+  const { row } = item;
+  const alert = median !== null && item.value >= median * ALERT_THRESHOLD;
+
+  const stats: [string, string][] = [
+    ["Investido", money(row.spend)],
+    ["Impressões", count(row.impressions)],
+    ["Alcance", count(row.reach)],
+    ["CTR", percent(row.ctr)],
+    ["CPC", moneyExact(row.cpc)],
+    ["CPM", moneyExact(row.cpm)],
+    [row.resultLabel ?? "Resultados", count(row.results)],
+    ["Custo/result.", moneyExact(row.costPerResult)],
+  ];
+  if (row.videoPlays !== null) {
+    stats.push(["Hook rate", ratio(row.hookRate)], ["Hold rate", ratio(row.holdRate)]);
+  }
+
+  return (
+    <div className="border-border bg-surface-raised mt-5 flex flex-col gap-4 rounded-md border p-4 sm:flex-row">
+      <CreativeCover
+        url={item.creative?.thumbnailUrl ?? null}
+        alert={alert}
+        position={item.index + 1}
+      />
+
+      <div className="min-w-0 flex-1">
+        {isDefault && (
+          <p className="eyebrow mb-1.5">Mais caro do período</p>
+        )}
+
+        <div className="flex flex-col items-start gap-1 sm:flex-row sm:gap-3">
+          <p className="text-foreground min-w-0 flex-1 text-sm leading-snug font-medium">
+            {row.name}
+          </p>
+          {item.creative?.permalink && (
+            <a
+              href={item.creative.permalink}
+              target="_blank"
+              rel="noreferrer"
+              className="text-muted-foreground hover:text-foreground shrink-0 text-xs underline underline-offset-2"
+            >
+              Ver no Instagram
+            </a>
+          )}
+        </div>
+
+        {row.videoPlays !== null && (
+          <p className="text-muted-foreground mt-1.5 text-[11px]">
+            Vídeo — a capa é o primeiro quadro.
+          </p>
+        )}
+
+        <dl className="mt-3.5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+          {stats.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-muted-foreground text-[11px]">{label}</dt>
+              <dd className="tnum text-sm">{value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        {row.quality && row.quality !== "UNKNOWN" && (
+          <p className="text-muted-foreground mt-3.5 text-[11px]">
+            Classificação de qualidade:{" "}
+            {row.quality === "ABOVE_AVERAGE"
+              ? "acima da média"
+              : row.quality === "AVERAGE"
+                ? "na média"
+                : "abaixo da média"}
+          </p>
+        )}
+        {row.quality === "UNKNOWN" && (
+          <p className="text-muted-foreground mt-3.5 text-[11px]">
+            Sem classificação de qualidade: a Meta só calcula acima de 500 impressões.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
