@@ -55,6 +55,30 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   },
 ];
 
+/**
+ * Rótulo, cor e formato de cada série num lugar só. Manter o rótulo no
+ * ChartConfig e o formato num mapa paralelo foi o que deixou o tooltip
+ * escrevendo "costPerResult" no lugar de "Custo por resultado".
+ */
+const SERIES = {
+  spend: { label: "Investimento", color: "var(--chart-3)", format: money },
+  results: { label: "Resultados", color: "var(--chart-1)", format: count },
+  costPerResult: {
+    label: "Custo por resultado",
+    color: "var(--chart-1)",
+    format: moneyExact,
+  },
+  frequency: {
+    label: "Frequência",
+    color: "var(--chart-1)",
+    format: (v: number) => decimal(v, 2),
+  },
+  ctr: { label: "CTR", color: "var(--chart-2)", format: (v: number) => percent(v, 2) },
+} as const satisfies Record<
+  string,
+  { label: string; color: string; format: (v: number) => string }
+>;
+
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 function bucketLabel(iso: string, granularity: Granularity): string {
@@ -62,6 +86,14 @@ function bucketLabel(iso: string, granularity: Granularity): string {
   if (!year || !month) return iso;
   if (granularity === "month") return `${MONTHS[Number(month) - 1]}/${year.slice(2)}`;
   return `${day}/${month}`;
+}
+
+/** No tooltip cabe dizer que balde é aquele; no eixo, não. */
+function bucketTitle(iso: string, granularity: Granularity): string {
+  const short = bucketLabel(iso, granularity);
+  if (granularity === "week") return `Semana de ${short}`;
+  if (granularity === "month") return short;
+  return short;
 }
 
 export function SeriesChart({
@@ -103,13 +135,10 @@ export function SeriesChart({
   }, [series]);
 
   const config = useMemo<ChartConfig>(
-    () => ({
-      spend: { label: "Investimento", color: "var(--chart-3)" },
-      results: { label: "Resultados", color: "var(--chart-1)" },
-      costPerResult: { label: "Custo por resultado", color: "var(--chart-1)" },
-      frequency: { label: "Frequência", color: "var(--chart-1)" },
-      ctr: { label: "CTR", color: "var(--chart-2)" },
-    }),
+    () =>
+      Object.fromEntries(
+        Object.entries(SERIES).map(([key, { label, color }]) => [key, { label, color }]),
+      ),
     [],
   );
 
@@ -277,14 +306,6 @@ export function SeriesChart({
   );
 }
 
-const TOOLTIP_FORMAT: Record<string, (v: number) => string> = {
-  spend: money,
-  results: count,
-  costPerResult: moneyExact,
-  frequency: (v) => decimal(v, 2),
-  ctr: (v) => percent(v, 2),
-};
-
 function SeriesTooltip({
   granularity,
   ...props
@@ -292,10 +313,30 @@ function SeriesTooltip({
   return (
     <ChartTooltipContent
       {...props}
-      labelFormatter={(label) => bucketLabel(String(label), granularity)}
+      labelFormatter={(label) => bucketTitle(String(label), granularity)}
+      /**
+       * Quando existe `formatter`, o ChartTooltipContent troca a linha inteira
+       * — some o indicador de cor e o alinhamento rótulo/valor. Como só a
+       * formatação do número não servia (o padrão usa toLocaleString), o
+       * fragmento reconstrói a linha e mantém as duas coisas.
+       */
       formatter={(value, name) => {
-        const format = TOOLTIP_FORMAT[String(name)] ?? count;
-        return [format(Number(value)), String(name)];
+        const serie = SERIES[String(name) as keyof typeof SERIES];
+        return (
+          <>
+            <span
+              aria-hidden
+              className="size-2.5 shrink-0 rounded-[2px]"
+              style={{ backgroundColor: serie?.color ?? "var(--chart-1)" }}
+            />
+            <span className="flex flex-1 items-center justify-between gap-4 leading-none">
+              <span className="text-muted-foreground">{serie?.label ?? String(name)}</span>
+              <span className="tnum text-foreground font-medium">
+                {serie ? serie.format(Number(value)) : count(Number(value))}
+              </span>
+            </span>
+          </>
+        );
       }}
     />
   );
