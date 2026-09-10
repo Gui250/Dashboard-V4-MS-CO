@@ -285,40 +285,197 @@ export async function getPlatforms(q: Query): Promise<PlatformSlice[]> {
     .sort((a, b) => b.spend - a.spend);
 }
 
+const CREATIVE_FIELDS =
+  "id,name,effective_status,creative{id,thumbnail_url,image_url,instagram_permalink_url}";
+
+/** Teto de operações por batch na Graph API. */
+const BATCH_MAX = 50;
+
 /**
- * thumbnail_url sai em 64px se não pedir tamanho — inútil num card.
- * Posts de Instagram impulsionados não têm image_url nem object_story_spec,
- * só thumbnail_url e effective_object_story_id.
+ * Só buscamos miniatura dos anúncios que mais gastaram: a pista fica ilegível
+ * muito antes disso, e cada anúncio custa uma sub-requisição.
  */
-export async function getCreatives(accountId: string): Promise<Creative[]> {
-  const ads = await fetchAll<RawAd>(
-    `act_${accountId}/ads`,
-    {
-      fields:
-        "id,name,effective_status,creative{id,thumbnail_url,image_url,instagram_permalink_url}",
-      thumbnail_width: "600",
-      thumbnail_height: "600",
-      limit: "500",
-    },
-    REVALIDATE_CREATIVES,
+const CREATIVE_LIMIT = 100;
+
+const CREATIVE_TTL_MS = 60 * 60 * 1000;
+/**
+ * ponytail: cache em memória do processo. Teto: não é compartilhado entre
+ * instâncias e some no restart. Se um dia houver mais de um servidor, troque
+ * por cache do Next ou Redis — hoje é um processo só e criativo muda de mês em mês.
+ */
+const creativeCache = new Map<string, { at: number; value: Creative }>();
+
+type BatchReply = { code?: number; body?: string };
+
+/**
+ * Buscar miniaturas listando `/act_<id>/ads` não escala: contas com algumas
+ * centenas de anúncios acumulados devolvem erro 1 ("Please reduce the amount of
+ * data you're asking for") mesmo com limit=100, porque a expansão `creative{}`
+ * é aplicada à conta inteira. Só ~60 desses anúncios entregam no período.
+ *
+ * Então pedimos anúncio a anúncio, em lotes: `POST /?batch=[...]` contorna a
+ * edge pesada. (`?ids=` faria o mesmo, mas foi descontinuado na v26.0.)
+ *
+ * thumbnail_url sai em 64px sem `thumbnail_width`/`thumbnail_height`, e é URL
+ * de CDN assinada que caduca em horas — nunca persista, sempre trate onError.
+ */
+export async function getCreatives(adIds: string[]): Promise<Creative[]> {
+  const now = Date.now();
+  const wanted = adIds.slice(0, CREATIVE_LIMIT);
+  const found: Creative[] = [];
+  const missing: string[] = [];
+
+  for (const id of wanted) {
+    const hit = creativeCache.get(id);
+    if (hit && now - hit.at < CREATIVE_TTL_MS) found.push(hit.value);
+    else missing.push(id);
+  }
+  if (!missing.length) return found;
+
+  const accessToken = token();
+  const proof = appSecretProof(accessToken);
+  const chunks: string[][] = [];
+  for (let i = 0; i < missing.length; i += BATCH_MAX) {
+    chunks.push(missing.slice(i, i + BATCH_MAX));
+  }
+
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const body = new URLSearchParams({
+        batch: JSON.stringify(
+          chunk.map((id) => ({
+            method: "GET",
+            relative_url: `${id}?fields=${encodeURIComponent(CREATIVE_FIELDS)}&thumbnail_width=600&thumbnail_height=600`,
+          })),
+        ),
+        include_headers: "false",
+        access_token: accessToken,
+      });
+      if (proof) body.set("appsecret_proof", proof);
+
+      const res = await fetch(`${graphBase()}/`, {
+        method: "POST",
+        body,
+        cache: "no-store",
+      });
+      if (!res.ok) return [];
+      const replies = (await res.json().catch(() => null)) as BatchReply[] | null;
+      if (!Array.isArray(replies)) return [];
+
+      return replies.flatMap((reply) => {
+        if (reply?.code !== 200 || !reply.body) return [];
+        try {
+          const ad = JSON.parse(reply.body) as RawAd;
+          return ad?.id ? [ad] : [];
+        } catch {
+          // Uma sub-resposta quebrada não invalida as outras 49.
+          return [];
+        }
+      });
+    }),
   );
 
-  return ads.map((ad) => ({
-    adId: ad.id,
-    name: ad.name ?? ad.id,
-    status: ad.effective_status ?? "UNKNOWN",
-    thumbnailUrl: ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null,
-    permalink: ad.creative?.instagram_permalink_url ?? null,
-  }));
+  for (const ad of results.flat()) {
+    const creative: Creative = {
+      adId: ad.id,
+      name: ad.name ?? ad.id,
+      status: ad.effective_status ?? "UNKNOWN",
+      thumbnailUrl: ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null,
+      permalink: ad.creative?.instagram_permalink_url ?? null,
+    };
+    creativeCache.set(ad.id, { at: now, value: creative });
+    found.push(creative);
+  }
+
+  return found;
+}
+
+/**
+ * Lista de contas do seletor, com descoberta automática.
+ *
+ * Num deploy é comum definir só `META_ACCESS_TOKEN` e esquecer
+ * `META_AD_ACCOUNTS`. Sem isto o painel ficaria preso: sem contas ele cai na
+ * tela de conexão, que está travada pelo ambiente e não consegue gravar em
+ * disco somente leitura. O token já dá acesso à lista — então busque.
+ */
+export async function resolveAccounts(): Promise<AdAccount[]> {
+  const configured = accounts();
+  if (configured.length || !hasToken()) return configured;
+
+  try {
+    const { data } = await metaFetch<{
+      data?: { account_id?: string; name?: string }[];
+    }>(
+      "me/adaccounts",
+      { fields: "account_id,name", limit: "200" },
+      REVALIDATE_CREATIVES,
+    );
+    return (data ?? [])
+      .filter((account) => account.account_id)
+      .map((account) => ({
+        id: account.account_id!,
+        name: account.name?.trim() || account.account_id!,
+      }));
+  } catch {
+    // Token inválido ou sem permissão: a tela de conexão explica o problema.
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Validação de credencial (usada pela tela de configuração)
 // ---------------------------------------------------------------------------
 
+export type TokenLife = {
+  /** ISO da expiração, ou null quando o token não expira. */
+  expiresAt: string | null;
+  /** USER, PAGE, SYSTEM_USER… — diz se veio do lugar certo. */
+  type: string | null;
+  scopes: string[];
+};
+
 export type TokenCheck =
-  | { ok: true; accounts: StoredAccount[]; discovered: boolean }
+  | { ok: true; accounts: StoredAccount[]; discovered: boolean; life: TokenLife }
   | { ok: false; message: string; code?: number };
+
+/**
+ * Um token de System User não expira; um User token do Graph API Explorer dura
+ * uma ou duas horas. Os dois são aceitos pela API e não há como distinguir
+ * olhando a string — só perguntando. Perguntar na hora de colar transforma uma
+ * falha silenciosa daqui a duas horas em informação agora.
+ *
+ * `/debug_token` aceita o próprio token como credencial de consulta.
+ * `expires_at: 0` significa "não expira".
+ */
+async function inspectToken(
+  accessToken: string,
+  apiVersion: string,
+): Promise<TokenLife> {
+  const empty: TokenLife = { expiresAt: null, type: null, scopes: [] };
+  try {
+    const query = new URLSearchParams({
+      input_token: accessToken,
+      access_token: accessToken,
+    });
+    const response = await fetch(
+      `https://graph.facebook.com/${apiVersion}/debug_token?${query}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return empty;
+    const body = (await response.json()) as {
+      data?: { expires_at?: number; type?: string; scopes?: string[] };
+    };
+    const expires = body.data?.expires_at ?? 0;
+    return {
+      expiresAt: expires > 0 ? new Date(expires * 1000).toISOString() : null,
+      type: body.data?.type ?? null,
+      scopes: body.data?.scopes ?? [],
+    };
+  } catch {
+    // Diagnóstico é bônus: nunca deve impedir o token válido de ser salvo.
+    return empty;
+  }
+}
 
 /**
  * Testa um token candidato ANTES de gravar, e de quebra descobre as contas que
@@ -355,16 +512,15 @@ export async function verifyToken(
   }
 
   const body = (await response.json().catch(() => ({}))) as {
-    data?: { account_id?: string; name?: string; account_status?: number }[];
+    data?: { account_id?: string; name?: string }[];
     error?: { message?: string; code?: number; error_user_msg?: string };
   };
 
   if (!response.ok || body.error) {
     const code = body.error?.code;
-    // 190 é token inválido; 200/10 é permissão faltando no System User.
     const message =
       code === 190
-        ? "Token inválido ou revogado pela Meta. Gere um novo no Business Manager."
+        ? "Token expirado, inválido ou revogado. Se você gerou pelo Graph API Explorer, aquele token dura só algumas horas — gere um de System User em business.facebook.com/settings e deixe DESMARCADA a caixa de 60 dias."
         : code === 200 || code === 10
           ? "O token é válido, mas falta a permissão ads_read ou o acesso às contas de anúncio."
           : (body.error?.error_user_msg ??
@@ -380,37 +536,10 @@ export async function verifyToken(
       name: account.name?.trim() || account.account_id!,
     }));
 
-  return { ok: true, accounts: discovered, discovered: discovered.length > 0 };
-}
-
-/**
- * Lista de contas do seletor, com descoberta automática.
- *
- * Num deploy é comum definir só `META_ACCESS_TOKEN` e esquecer
- * `META_AD_ACCOUNTS`. Sem isto o painel ficaria preso: sem contas ele cai na
- * tela de conexão, que está travada pelo ambiente e não consegue gravar em
- * disco somente leitura. O token já dá acesso à lista — então busque.
- */
-export async function resolveAccounts(): Promise<AdAccount[]> {
-  const configured = accounts();
-  if (configured.length || !hasToken()) return configured;
-
-  try {
-    const { data } = await metaFetch<{
-      data?: { account_id?: string; name?: string }[];
-    }>(
-      "me/adaccounts",
-      { fields: "account_id,name", limit: "200" },
-      REVALIDATE_CREATIVES,
-    );
-    return (data ?? [])
-      .filter((account) => account.account_id)
-      .map((account) => ({
-        id: account.account_id!,
-        name: account.name?.trim() || account.account_id!,
-      }));
-  } catch {
-    // Token inválido ou sem permissão: a tela de conexão explica o problema.
-    return [];
-  }
+  return {
+    ok: true,
+    accounts: discovered,
+    discovered: discovered.length > 0,
+    life: await inspectToken(accessToken, apiVersion),
+  };
 }

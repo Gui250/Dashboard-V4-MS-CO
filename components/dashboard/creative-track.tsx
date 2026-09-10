@@ -19,6 +19,14 @@ const ALERT_THRESHOLD = 2;
 /** Miniatura (44px) + anel + folga: o espaço que duas vizinhas precisam ter. */
 const THUMB_CLEARANCE_PX = 60;
 
+/**
+ * A pista é instrumento de triagem, não catálogo. Numa conta com 63 anúncios
+ * ativos ela vira dez faixas empilhadas e não responde mais a pergunta que
+ * existe para responder. Mostramos os que têm mais dinheiro em jogo; o resto
+ * está na tabela, que é o lugar de listar.
+ */
+const TRACK_LIMIT = 16;
+
 type Plotted = {
   row: Row;
   creative?: Creative;
@@ -77,8 +85,10 @@ export function CreativeTrack({
     [creatives],
   );
 
-  const { plotted, min, max, median, unplotted, spread } = useMemo(() => {
-    const withValue = ads
+  const { plotted, min, max, median, unplotted, spread, hidden } = useMemo(() => {
+    // Recorta por gasto — o critério de "importa" — e só então posiciona por custo.
+    const top = [...ads].sort((a, b) => b.spend - a.spend).slice(0, TRACK_LIMIT);
+    const withValue = top
       .map((row) => ({ row, value: row[metric] }))
       .filter((item): item is { row: Row; value: number } =>
         typeof item.value === "number" && Number.isFinite(item.value) && item.value > 0,
@@ -86,7 +96,15 @@ export function CreativeTrack({
       .sort((a, b) => a.value - b.value);
 
     if (withValue.length === 0) {
-      return { plotted: [], min: 0, max: 0, median: null, unplotted: ads.length, spread: 1 };
+      return {
+        plotted: [],
+        min: 0,
+        max: 0,
+        median: null,
+        unplotted: top.length,
+        spread: 1,
+        hidden: ads.length - top.length,
+      };
     }
 
     const values = withValue.map((item) => item.value);
@@ -118,8 +136,9 @@ export function CreativeTrack({
       min: lo,
       max: hi,
       median: med,
-      unplotted: ads.length - withValue.length,
+      unplotted: top.length - withValue.length,
       spread: lo > 0 ? hi / lo : 1,
+      hidden: ads.length - top.length,
     };
   }, [ads, byAdId, metric, railWidth]);
 
@@ -157,9 +176,19 @@ export function CreativeTrack({
                     spread >= 10 ? "text-destructive" : "text-foreground",
                   )}
                 >
-                  {spread.toFixed(spread >= 10 ? 0 : 1).replace(".", ",")}×
+                  {spread >= 1000
+                    ? `${Math.round(spread / 1000)} mil`
+                    : spread.toFixed(spread >= 10 ? 0 : 1).replace(".", ",")}
+                  ×
                 </strong>{" "}
-                o mais barato.
+                o mais barato
+                {hidden > 0 && (
+                  <>
+                    {" "}
+                    — entre os {plotted.length} de maior investimento
+                  </>
+                )}
+                .
               </>
             ) : (
               "Cada anúncio posicionado pelo seu custo, em escala logarítmica."
@@ -279,11 +308,16 @@ export function CreativeTrack({
             <span>
               ◄ eficiente <span className="tnum text-foreground">{moneyExact(min)}</span>
             </span>
-            {unplotted > 0 && (
-              <span className="truncate">
-                {unplotted} anúncio{unplotted > 1 ? "s" : ""} sem essa métrica no período
-              </span>
-            )}
+            <span className="truncate">
+              {[
+                unplotted > 0 &&
+                  `${unplotted} sem essa métrica`,
+                hidden > 0 &&
+                  `outros ${hidden} anúncios na tabela abaixo`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
             <span>
               <span className="tnum text-destructive">{moneyExact(max)}</span> caro ►
             </span>

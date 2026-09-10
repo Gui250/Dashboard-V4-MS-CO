@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { flattenActions, median, normalizeRow, pickResult } from "./normalize.ts";
 import type { InsightRow } from "./meta-types.ts";
 
-/** Linha real da conta 841618581984716 — o criativo caro. */
+/** Linha real de uma conta em produção — o criativo caro. */
 const CARO: InsightRow = {
   ad_id: "120249286563940521",
   ad_name: "Post do Instagram: Comprar o CRM é a parte fácil...",

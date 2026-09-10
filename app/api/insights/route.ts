@@ -67,19 +67,24 @@ export async function GET(request: Request) {
     // Paralelo, não em batch: a doc é explícita que cada sub-requisição de um
     // batch conta separadamente para a cota, então batch só pouparia round-trips.
     // Quem realmente corta chamadas é o cache do Next em lib/meta.ts.
-    const [meta, totalsRows, series, adRows, levelRows, creatives, platforms] =
+    const [meta, totalsRows, series, adRows, levelRows, platforms] =
       await Promise.all([
         getAccountMeta(account.id),
         getInsights(query, "account"),
         getSeries(query),
         getInsights(query, "ad"),
         level === "ad" ? Promise.resolve(null) : getInsights(query, level),
-        // Miniaturas e breakdown são enriquecimento, não o painel. Pedem
-        // permissões de ativo diferentes das de insights, então falham sozinhos
-        // em vez de derrubar a tela inteira.
-        getCreatives(account.id).catch(() => null),
+        // Breakdown é enriquecimento, não o painel: falha sozinho em vez de
+        // derrubar a tela inteira.
         getPlatforms(query).catch(() => null),
       ]);
+
+    // Depende dos anúncios: só buscamos miniatura de quem entregou no período.
+    // Listar a conta inteira estoura o limite de dados da Graph API em contas
+    // com centenas de anúncios acumulados.
+    const creatives = await getCreatives(
+      [...adRows].sort((a, b) => b.spend - a.spend).map((row) => row.id),
+    ).catch(() => null);
 
     const warnings: string[] = [];
     const rows = levelRows ?? adRows;

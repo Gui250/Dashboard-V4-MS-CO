@@ -23,9 +23,9 @@ test("mask esconde por completo um segredo curto", () => {
 });
 
 test("parseAccounts lê o formato id:nome separado por barra", () => {
-  assert.deepEqual(parseAccounts("841618581984716:MS&CO|1410365954445708:CA01 Guilherme"), [
-    { id: "841618581984716", name: "MS&CO" },
-    { id: "1410365954445708", name: "CA01 Guilherme" },
+  assert.deepEqual(parseAccounts("100000000000001:Conta A|200000000000002:Conta B"), [
+    { id: "100000000000001", name: "Conta A" },
+    { id: "200000000000002", name: "Conta B" },
   ]);
 });
 

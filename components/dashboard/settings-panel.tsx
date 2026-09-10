@@ -16,7 +16,11 @@ type Status = {
   defaultApiVersion: string;
 };
 
-const getStatus = (url: string) => fetch(url).then((r) => r.json() as Promise<Status>);
+const getStatus = async (url: string): Promise<Status> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Estado indisponível (${response.status})`);
+  return response.json();
+};
 
 export function SettingsPanel({
   onSaved,
@@ -25,7 +29,16 @@ export function SettingsPanel({
   onSaved: () => void;
   variant: "setup" | "panel";
 }) {
-  const { data: status, mutate } = useSWR<Status>("/api/settings", getStatus);
+  const {
+    data: status,
+    error: statusError,
+    mutate,
+  } = useSWR<Status>("/api/settings", getStatus, {
+    // Sem isto, uma busca que falha deixa em tela o último estado bom sem
+    // qualquer sinal — e "travado pelo ambiente" velho passa por verdade atual.
+    keepPreviousData: false,
+    errorRetryInterval: 4000,
+  });
 
   const [accessToken, setAccessToken] = useState("");
   const [appSecret, setAppSecret] = useState("");
@@ -85,7 +98,27 @@ export function SettingsPanel({
         </header>
       )}
 
-      {!status ? (
+      {statusError ? (
+        <div
+          role="alert"
+          className="border-border bg-surface-raised rounded-md border p-4 text-sm"
+        >
+          <p className="text-foreground font-medium">
+            Não deu para ler a configuração atual
+          </p>
+          <p className="text-muted-foreground mt-1">
+            {(statusError as Error).message}. O servidor pode ter reiniciado — o que
+            estiver na tela pode estar desatualizado.
+          </p>
+          <button
+            type="button"
+            onClick={() => void mutate()}
+            className="border-border mt-3 rounded-md border px-3 py-1.5 text-xs font-medium"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      ) : !status ? (
         <div className="bg-secondary h-40 animate-pulse rounded-md" />
       ) : lockedAll ? (
         <p className="border-border bg-surface-raised text-muted-foreground rounded-md border p-4 text-sm">
@@ -175,7 +208,7 @@ export function SettingsPanel({
         </form>
       )}
 
-      {(status?.accounts.length ?? 0) > 0 && (
+      {!statusError && (status?.accounts.length ?? 0) > 0 && (
         <section className="mt-7">
           <h3 className="eyebrow mb-1">Contas no seletor</h3>
           <p className="text-muted-foreground mb-3 text-xs">
