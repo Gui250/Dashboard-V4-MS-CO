@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { flattenActions, median, normalizeRow, pickResult } from "./normalize.ts";
+import {
+  conversionRate,
+  costFactors,
+  flattenActions,
+  median,
+  normalizeRow,
+  pickResult,
+} from "./normalize.ts";
 import type { InsightRow } from "./meta-types.ts";
 
 /** Linha real de uma conta em produção — o criativo caro. */
@@ -174,4 +181,50 @@ test("mediana resiste ao outlier que a média não resistiria", () => {
   assert.equal(median([]), null);
   assert.equal(median([0, 0]), null, "zeros não contam como custo válido");
   assert.equal(median([2, 4]), 3, "par: média dos dois centrais");
+});
+
+test("custo por resultado se decompõe exatamente nos três fatores", () => {
+  // Números redondos para a identidade ficar verificável a olho:
+  // 10.000 impressões, 200 cliques (CTR 2%), 20 resultados (conversão 10%),
+  // R$100 gastos => CPM R$10, custo por resultado R$5.
+  const cpm = 10, ctr = 2, clicks = 200, results = 20;
+  const conversion = conversionRate(clicks, results)!;
+  assert.equal(conversion, 0.1);
+
+  // (CPM/1000) ÷ CTR ÷ conversão, com CTR em fração.
+  const reconstruido = cpm / 1000 / (ctr / 100) / conversion;
+  assert.ok(
+    Math.abs(reconstruido - 5) < 1e-9,
+    `identidade deveria dar R$5,00 e deu ${reconstruido}`,
+  );
+});
+
+test("ratio dos fatores aponta na mesma direção nos três", () => {
+  const medians = { cpm: 10, ctr: 2, conversion: 0.1 };
+
+  // CPM o dobro: valor alto encarece -> pior.
+  const caro = costFactors({ cpm: 20, ctr: 2, clicks: 200, results: 20 }, medians);
+  assert.equal(caro.find((f) => f.key === "cpm")!.ratio, 2);
+
+  // CTR pela metade: valor baixo encarece -> também deve dar 2, não 0,5.
+  const semClique = costFactors({ cpm: 10, ctr: 1, clicks: 100, results: 10 }, medians);
+  assert.equal(semClique.find((f) => f.key === "ctr")!.ratio, 2);
+
+  // Conversão pela metade (5%): mesma lógica.
+  const semConversao = costFactors({ cpm: 10, ctr: 2, clicks: 200, results: 10 }, medians);
+  assert.equal(semConversao.find((f) => f.key === "conversion")!.ratio, 2);
+});
+
+test("fatores sem base viram null, nunca Infinity", () => {
+  const zerado = costFactors(
+    { cpm: 0, ctr: 0, clicks: 0, results: null },
+    { cpm: 0, ctr: 0, conversion: null },
+  );
+  for (const factor of zerado) {
+    assert.equal(factor.ratio, null, `${factor.key} deveria ser null`);
+    assert.ok(Number.isFinite(factor.value));
+  }
+  // Sem cliques não há taxa de conversão possível.
+  assert.equal(conversionRate(0, 10), null);
+  assert.equal(conversionRate(100, null), null);
 });

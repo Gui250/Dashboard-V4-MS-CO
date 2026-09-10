@@ -220,3 +220,78 @@ export function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+
+// ---------------------------------------------------------------------------
+// Decomposição do custo por resultado
+// ---------------------------------------------------------------------------
+
+export type FactorKey = "cpm" | "ctr" | "conversion";
+
+export type CostFactor = {
+  key: FactorKey;
+  /** Valor do criativo neste fator. */
+  value: number;
+  /**
+   * Quantas vezes PIOR que a mediana da conta. Sempre na mesma direção,
+   * qualquer que seja o fator: >1 encarece, <1 barateia. null = sem base.
+   */
+  ratio: number | null;
+};
+
+/** Resultados por clique. É o elo que a Meta não entrega pronto. */
+export function conversionRate(clicks: number, results: number | null): number | null {
+  if (!clicks || results === null) return null;
+  return results / clicks;
+}
+
+/**
+ * Custo por resultado não é caixa-preta — é identidade:
+ *
+ *     custo/resultado = (CPM / 1000) ÷ CTR ÷ taxa de conversão
+ *
+ * porque (custo/impressão) ÷ (cliques/impressão) ÷ (resultados/clique)
+ * cancela tudo e sobra custo/resultado.
+ *
+ * Todo real de custo vem, então, de um de três lugares: a entrega está cara,
+ * o criativo não arranca clique, ou o clique não converte. Comparar cada fator
+ * com a mediana da conta aponta qual dos três é o culpado — que é a pergunta
+ * que alguém faz ao clicar num criativo caro.
+ *
+ * `ratio` é normalizado para que >1 signifique "pior" nos três: em CPM o valor
+ * alto encarece, em CTR e conversão é o valor baixo que encarece.
+ */
+export function costFactors(
+  row: Pick<Row, "cpm" | "ctr" | "clicks" | "results">,
+  medians: { cpm: number | null; ctr: number | null; conversion: number | null },
+): CostFactor[] {
+  const conversion = conversionRate(row.clicks, row.results);
+  const safe = (a: number | null, b: number | null) =>
+    a !== null && b !== null && a > 0 && b > 0 ? b / a : null;
+
+  return [
+    // Mais alto encarece.
+    { key: "cpm", value: row.cpm, ratio: safe(medians.cpm, row.cpm) },
+    // Mais baixo encarece: a razão inverte.
+    { key: "ctr", value: row.ctr, ratio: safe(row.ctr, medians.ctr) },
+    {
+      key: "conversion",
+      value: conversion ?? 0,
+      ratio: safe(conversion, medians.conversion),
+    },
+  ];
+}
+
+/** Medianas da conta, base de comparação dos fatores. */
+export function accountFactorMedians(
+  rows: Pick<Row, "cpm" | "ctr" | "clicks" | "results">[],
+) {
+  return {
+    cpm: median(rows.map((r) => r.cpm)),
+    ctr: median(rows.map((r) => r.ctr)),
+    conversion: median(
+      rows
+        .map((r) => conversionRate(r.clicks, r.results))
+        .filter((v): v is number => v !== null),
+    ),
+  };
+}

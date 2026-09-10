@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { count, decimal, money, moneyExact, percent, ratio } from "@/lib/format";
 import type { Creative, Row } from "@/lib/meta-types";
+import {
+  accountFactorMedians,
+  costFactors,
+  type CostFactor,
+} from "@/lib/normalize";
 
 type TrackMetric = "costPerResult" | "cpm" | "cpc";
 
@@ -141,6 +146,9 @@ export function CreativeTrack({
       hidden: ads.length - top.length,
     };
   }, [ads, byAdId, metric, railWidth]);
+
+  // Base de comparação dos fatores: a própria conta, no período selecionado.
+  const factorMedians = useMemo(() => accountFactorMedians(ads), [ads]);
 
   const lanes = Math.max(1, ...plotted.map((item) => item.lane + 1));
   const medianX =
@@ -299,6 +307,11 @@ export function CreativeTrack({
                       </span>
                     )}
                   </span>
+                  {alert && (
+                    <span className="text-destructive tnum mt-1 block text-center text-[10px] font-semibold whitespace-nowrap">
+                      {moneyExact(item.value)}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -327,6 +340,7 @@ export function CreativeTrack({
             <CreativeDetail
               item={active}
               median={median}
+              medians={factorMedians}
               isDefault={showingDefault}
             />
           )}
@@ -427,10 +441,12 @@ function Retention({
 function CreativeDetail({
   item,
   median,
+  medians,
   isDefault,
 }: {
   item: Plotted;
   median: number | null;
+  medians: ReturnType<typeof accountFactorMedians>;
   isDefault: boolean;
 }) {
   const { row } = item;
@@ -495,6 +511,8 @@ function CreativeDetail({
           ))}
         </dl>
 
+        <CostBreakdown row={row} medians={medians} />
+
         {row.retention && <Retention retention={row.retention} />}
 
         {row.quality && row.quality !== "UNKNOWN" && (
@@ -515,4 +533,150 @@ function CreativeDetail({
       </div>
     </div>
   );
+}
+
+const FACTOR_COPY: Record<
+  CostFactor["key"],
+  { label: string; format: (v: number) => string; culprit: string }
+> = {
+  cpm: {
+    label: "CPM",
+    format: (v) => moneyExact(v),
+    culprit: "a entrega está cara — público disputado, frequência alta ou qualidade baixa",
+  },
+  ctr: {
+    label: "Taxa de clique",
+    format: (v) => percent(v),
+    culprit: "o criativo aparece mas não arranca clique",
+  },
+  conversion: {
+    label: "Conversão do clique",
+    format: (v) => ratio(v),
+    culprit: "o clique acontece mas não vira resultado — olhe destino e oferta, não o criativo",
+  },
+};
+
+/** A partir daqui o fator deixa de ser variação normal e vira gargalo. */
+const BOTTLENECK = 1.5;
+
+/**
+ * Custo por resultado é identidade, não caixa-preta:
+ *
+ *     custo/resultado = (CPM / 1000) ÷ CTR ÷ conversão
+ *
+ * Então dá para dizer de onde vem cada real — e é isso que alguém quer saber
+ * ao clicar num criativo caro. As barras crescem em escala logarítmica porque
+ * um fator 20× pior e um 3× pior precisam caber na mesma régua.
+ *
+ * Só o pior fator fica vermelho. Pintar os três que passaram da mediana
+ * devolveria o problema que o vermelho existe para resolver.
+ */
+function CostBreakdown({
+  row,
+  medians,
+}: {
+  row: Row;
+  medians: ReturnType<typeof accountFactorMedians>;
+}) {
+  const factors = costFactors(row, medians);
+  const comparable = factors.filter((f) => f.ratio !== null);
+  if (!comparable.length) return null;
+
+  const worst = comparable.reduce((a, b) => (b.ratio! > a.ratio! ? b : a));
+  const isBottleneck = worst.ratio! >= BOTTLENECK;
+
+  return (
+    <section className="border-line mt-4 border-t pt-4">
+      <h4 className="eyebrow mb-3">
+        Por que este resultado custa {moneyExact(row.costPerResult)}
+      </h4>
+
+      <ul className="space-y-2">
+        {factors.map((factor) => {
+          const copy = FACTOR_COPY[factor.key];
+          const culprit = isBottleneck && factor.key === worst.key;
+          // log10: 10× pior enche a barra, 2× pior ocupa ~30%.
+          const fill =
+            factor.ratio && factor.ratio > 1
+              ? Math.min(100, (Math.log10(factor.ratio) / 1) * 100)
+              : 0;
+
+          return (
+            <li key={factor.key} className="flex items-center gap-3 text-xs">
+              <span className="text-muted-foreground w-32 shrink-0 truncate">
+                {copy.label}
+              </span>
+              <span
+                className={cn(
+                  "tnum w-20 shrink-0 text-right",
+                  culprit && "text-destructive font-semibold",
+                )}
+              >
+                {copy.format(factor.value)}
+              </span>
+
+              <span className="bg-secondary relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                <span
+                  className={cn(
+                    "absolute inset-y-0 left-0 rounded-full",
+                    culprit ? "bg-destructive" : "bg-muted-foreground",
+                  )}
+                  style={{ width: `${fill}%` }}
+                />
+              </span>
+
+              <span
+                className={cn(
+                  "w-36 shrink-0 text-right text-[11px]",
+                  culprit ? "text-destructive font-semibold" : "text-muted-foreground",
+                )}
+              >
+                {factor.ratio === null ? (
+                  "sem base"
+                ) : factor.ratio >= 1.05 ? (
+                  <>
+                    <span className="tnum">{formatRatio(factor.ratio)}×</span> pior que a
+                    mediana
+                  </>
+                ) : factor.ratio <= 0.95 ? (
+                  <>
+                    <span className="tnum">{formatRatio(1 / factor.ratio)}×</span> melhor
+                  </>
+                ) : (
+                  "na mediana"
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="text-muted-foreground mt-3 text-[11px] leading-relaxed">
+        {isBottleneck ? (
+          <>
+            O gargalo é <strong className="text-foreground">{FACTOR_COPY[worst.key].label.toLowerCase()}</strong>:{" "}
+            {FACTOR_COPY[worst.key].culprit}.
+          </>
+        ) : (
+          "Nenhum fator destoa da conta — o custo deste criativo é o custo normal do período."
+        )}
+        {row.frequency >= 2.5 && (
+          <>
+            {" "}
+            A frequência está em{" "}
+            <strong className="text-foreground tnum">{decimal(row.frequency)}</strong>: as
+            mesmas pessoas já viram este anúncio várias vezes, o que derruba o clique e
+            sobe o CPM.
+          </>
+        )}
+      </p>
+    </section>
+  );
+}
+
+/** 24,3× polui; 24× basta. Abaixo de 10 o decimal ainda informa. */
+function formatRatio(value: number): string {
+  return value >= 10
+    ? String(Math.round(value))
+    : value.toFixed(1).replace(".", ",");
 }
