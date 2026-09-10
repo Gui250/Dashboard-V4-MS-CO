@@ -5,6 +5,7 @@ import { useFilters } from "@/hooks/use-filters";
 import type { Payload } from "@/lib/meta-types";
 import { AccountBar, type AccountOption } from "./account-bar";
 import { CreativeTrack } from "./creative-track";
+import { TopCreatives } from "./top-creatives";
 import { MetricStrip } from "./metric-strip";
 import { SeriesChart, type SeriesMetric } from "./series-chart";
 import { PlatformSplit } from "./platform-split";
@@ -86,6 +87,13 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
         ) : data ? (
           <>
             <CreativeTrack
+              ads={data.ads}
+              creatives={data.creatives}
+              selectedAd={filters.ad}
+              onSelect={(ad) => set({ ad, level: ad ? "ad" : filters.level })}
+            />
+
+            <TopCreatives
               ads={data.ads}
               creatives={data.creatives}
               selectedAd={filters.ad}

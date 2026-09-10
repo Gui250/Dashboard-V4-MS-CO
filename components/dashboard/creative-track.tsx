@@ -454,7 +454,7 @@ function CreativeDetail({
   return (
     <div className="border-border bg-surface-raised mt-5 flex flex-col gap-4 rounded-md border p-4 sm:flex-row">
       <CreativeCover
-        url={item.creative?.thumbnailUrl ?? null}
+        url={item.creative?.coverUrl ?? item.creative?.thumbnailUrl ?? null}
         alert={alert}
         position={item.index + 1}
       />

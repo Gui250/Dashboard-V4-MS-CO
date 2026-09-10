@@ -62,6 +62,7 @@ export type RawAd = {
     thumbnail_url?: string;
     image_url?: string;
     effective_object_story_id?: string;
+    effective_instagram_media_id?: string;
     instagram_permalink_url?: string;
   };
 };
@@ -113,8 +114,12 @@ export type Creative = {
   adId: string;
   name: string;
   status: string;
+  /** 64×64 da Graph API. Serve para a miniatura de 44px da pista, e só. */
   thumbnailUrl: string | null;
+  /** Resolução real do post (até 1080×1920). Para a capa e o ranking. */
+  coverUrl: string | null;
   permalink: string | null;
+  isVideo: boolean;
 };
 
 export type SeriesPoint = {

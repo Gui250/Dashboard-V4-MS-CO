@@ -286,7 +286,7 @@ export async function getPlatforms(q: Query): Promise<PlatformSlice[]> {
 }
 
 const CREATIVE_FIELDS =
-  "id,name,effective_status,creative{id,thumbnail_url,image_url,instagram_permalink_url}";
+  "id,name,effective_status,creative{id,thumbnail_url,image_url,instagram_permalink_url,effective_instagram_media_id}";
 
 /** Teto de operações por batch na Graph API. */
 const BATCH_MAX = 50;
@@ -375,19 +375,106 @@ export async function getCreatives(adIds: string[]): Promise<Creative[]> {
     }),
   );
 
-  for (const ad of results.flat()) {
+  const ads = results.flat();
+  const covers = await resolveCovers(ads);
+
+  for (const ad of ads) {
+    const media = covers.get(ad.creative?.effective_instagram_media_id ?? "");
     const creative: Creative = {
       adId: ad.id,
       name: ad.name ?? ad.id,
       status: ad.effective_status ?? "UNKNOWN",
       thumbnailUrl: ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null,
+      // Sem mídia acessível, a capa cai para o thumbnail de 64px: pequeno,
+      // mas melhor que um buraco.
+      coverUrl:
+        media?.url ??
+        ad.creative?.image_url ??
+        ad.creative?.thumbnail_url ??
+        null,
       permalink: ad.creative?.instagram_permalink_url ?? null,
+      isVideo: media?.isVideo ?? false,
     };
     creativeCache.set(ad.id, { at: now, value: creative });
     found.push(creative);
   }
 
   return found;
+}
+
+/**
+ * `thumbnail_url` do AdCreative sai em 64×64 e ignora `thumbnail_width` —
+ * testado, os parâmetros não têm efeito. A imagem em resolução real está na
+ * mídia do Instagram por trás do anúncio: até 1080×1920.
+ *
+ * Para VIDEO o campo certo é `thumbnail_url` (o poster em alta), não
+ * `media_url`, que é o MP4 de vários megabytes.
+ *
+ * Anúncios antigos podem não expor a mídia ("Unsupported get request"); nesse
+ * caso o chamador cai no thumbnail pequeno.
+ */
+async function resolveCovers(
+  ads: RawAd[],
+): Promise<Map<string, { url: string; isVideo: boolean }>> {
+  const out = new Map<string, { url: string; isVideo: boolean }>();
+  const mediaIds = [
+    ...new Set(
+      ads
+        .map((ad) => ad.creative?.effective_instagram_media_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (!mediaIds.length) return out;
+
+  const accessToken = token();
+  const proof = appSecretProof(accessToken);
+  const chunks: string[][] = [];
+  for (let i = 0; i < mediaIds.length; i += BATCH_MAX) {
+    chunks.push(mediaIds.slice(i, i + BATCH_MAX));
+  }
+
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const body = new URLSearchParams({
+        batch: JSON.stringify(
+          chunk.map((id) => ({
+            method: "GET",
+            relative_url: `${id}?fields=media_type,media_url,thumbnail_url`,
+          })),
+        ),
+        include_headers: "false",
+        access_token: accessToken,
+      });
+      if (proof) body.set("appsecret_proof", proof);
+
+      const res = await fetch(`${graphBase()}/`, {
+        method: "POST",
+        body,
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const replies = (await res.json().catch(() => null)) as BatchReply[] | null;
+      if (!Array.isArray(replies)) return;
+
+      replies.forEach((reply, index) => {
+        if (reply?.code !== 200 || !reply.body) return;
+        try {
+          const media = JSON.parse(reply.body) as {
+            media_type?: string;
+            media_url?: string;
+            thumbnail_url?: string;
+          };
+          const isVideo = media.media_type === "VIDEO";
+          const url = isVideo ? media.thumbnail_url : media.media_url;
+          if (url) out.set(chunk[index], { url, isVideo });
+        } catch {
+          // Uma mídia inacessível não invalida as outras.
+        }
+      });
+    }),
+  );
+
+  return out;
 }
 
 /**
