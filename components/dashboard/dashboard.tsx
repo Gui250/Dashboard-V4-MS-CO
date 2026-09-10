@@ -107,7 +107,7 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
                 series={data.series}
                 granularity={filters.granularity}
                 view={filters.metric as "retorno" | "custo" | "fadiga"}
-                resultLabel={data.totals.resultLabel}
+                totals={data.totals}
                 onGranularityChange={(granularity) => set({ granularity })}
                 onViewChange={(metric) => set({ metric })}
               />

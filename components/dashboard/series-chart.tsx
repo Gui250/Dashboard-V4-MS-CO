@@ -20,7 +20,7 @@ import {
 import { FunnelChart, type FunnelStage } from "@/components/ui/funnel-chart";
 import { cn } from "@/lib/utils";
 import { count, decimal, money, moneyExact, percent } from "@/lib/format";
-import type { SeriesPoint } from "@/lib/meta-types";
+import type { Row, SeriesPoint } from "@/lib/meta-types";
 import type { Filters } from "@/hooks/use-filters";
 
 type Granularity = Filters["granularity"];
@@ -101,14 +101,14 @@ export function SeriesChart({
   series,
   granularity,
   view,
-  resultLabel,
+  totals,
   onGranularityChange,
   onViewChange,
 }: {
   series: SeriesPoint[];
   granularity: Granularity;
   view: ViewKey;
-  resultLabel: string | null;
+  totals: Pick<Row, "impressions" | "linkClicks" | "results" | "resultLabel">;
   onGranularityChange: (value: Granularity) => void;
   onViewChange: (value: ViewKey) => void;
 }) {
@@ -138,30 +138,30 @@ export function SeriesChart({
   }, [series]);
 
   /**
-   * Impressões, cliques e resultados somam entre baldes — alcance e frequência
-   * não, e por isso ficam de fora do funil. O último estágio só entra quando o
-   * objetivo produziu resultado; sem isso o funil terminaria num zero que
-   * parece queda de desempenho e é só ausência de evento.
+   * O funil vem de `totals` — a linha única do período —, nunca da soma dos
+   * baldes. Sem o campo `objective` no nível de conta, pickResult() escolhe o
+   * tipo de ação por linha: um dia sem compra cai para "visitas à página" e a
+   * soma vira uma mistura de métricas com o rótulo da primeira. Somar cliques e
+   * impressões seria válido; somar `results` não é.
    */
   const funnel = useMemo<FunnelStage[]>(() => {
-    const impressions = series.reduce((sum, p) => sum + p.impressions, 0);
-    const linkClicks = series.reduce((sum, p) => sum + p.linkClicks, 0);
-    const results = series.reduce((sum, p) => sum + (p.results ?? 0), 0);
-    if (impressions <= 0) return [];
+    if (totals.impressions <= 0) return [];
 
     const stages: FunnelStage[] = [
-      { label: "Impressões", value: impressions, color: "var(--chart-3)" },
-      { label: "Cliques no link", value: linkClicks, color: "var(--chart-2)" },
+      { label: "Impressões", value: totals.impressions, color: "var(--chart-3)" },
+      { label: "Cliques no link", value: totals.linkClicks, color: "var(--chart-2)" },
     ];
-    if (results > 0) {
+    // Sem evento de conversão o último estágio some, em vez de virar um zero
+    // que parece queda de desempenho e é só ausência de dado.
+    if (totals.results !== null && totals.results > 0) {
       stages.push({
-        label: resultLabel ?? "Resultados",
-        value: results,
+        label: totals.resultLabel ?? "Resultados",
+        value: totals.results,
         color: "var(--chart-1)",
       });
     }
     return stages;
-  }, [series, resultLabel]);
+  }, [totals]);
 
   const config = useMemo<ChartConfig>(
     () =>
