@@ -194,6 +194,19 @@ export type Query = {
   preset?: string;
   level: Row["level"];
   status?: "all" | "active" | "paused";
+  granularity?: Granularity;
+};
+
+export type Granularity = "day" | "week" | "month";
+
+/**
+ * time_increment aceita 1..90 (dias) ou "monthly".
+ * https://developers.facebook.com/docs/marketing-api/reference/ad-account/insights/
+ */
+const TIME_INCREMENT: Record<Granularity, string> = {
+  day: "1",
+  week: "7",
+  month: "monthly",
 };
 
 /**
@@ -232,7 +245,7 @@ export async function getSeries(q: Query): Promise<SeriesPoint[]> {
   const rows = await fetchAll<InsightRow>(`act_${q.accountId}/insights`, {
     level: "account",
     fields: BASE_FIELDS.join(","),
-    time_increment: "1",
+    time_increment: TIME_INCREMENT[q.granularity ?? "day"],
     limit: "500",
     ...timeParams(q.since, q.until, q.preset),
   });
@@ -244,6 +257,10 @@ export async function getSeries(q: Query): Promise<SeriesPoint[]> {
         date: raw.date_start ?? "",
         spend: row.spend,
         impressions: row.impressions,
+        reach: row.reach,
+        // A Meta calcula frequência por balde; somar entre baldes seria errado,
+        // então ela vem pronta da API e nunca é agregada aqui.
+        frequency: row.frequency,
         clicks: row.clicks,
         linkClicks: row.linkClicks,
         ctr: row.ctr,

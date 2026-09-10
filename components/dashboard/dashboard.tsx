@@ -7,7 +7,7 @@ import { AccountBar, type AccountOption } from "./account-bar";
 import { CreativeTrack } from "./creative-track";
 import { TopCreatives } from "./top-creatives";
 import { MetricStrip } from "./metric-strip";
-import { SeriesChart, type SeriesMetric } from "./series-chart";
+import { SeriesChart } from "./series-chart";
 import { PlatformSplit } from "./platform-split";
 import { EntityTable } from "./entity-table";
 
@@ -105,8 +105,10 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
             <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
               <SeriesChart
                 series={data.series}
-                metric={filters.metric as SeriesMetric}
-                onMetricChange={(metric) => set({ metric })}
+                granularity={filters.granularity}
+                view={filters.metric as "retorno" | "custo" | "fadiga"}
+                onGranularityChange={(granularity) => set({ granularity })}
+                onViewChange={(metric) => set({ metric })}
               />
               <PlatformSplit platforms={data.platforms} />
             </div>

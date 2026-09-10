@@ -123,9 +123,13 @@ export type Creative = {
 };
 
 export type SeriesPoint = {
+  /** Início do balde: dia, semana ou mês, conforme a granularidade pedida. */
   date: string;
   spend: number;
   impressions: number;
+  reach: number;
+  /** Impressões por pessoa no balde. Sobe = mesma gente vendo de novo. */
+  frequency: number;
   clicks: number;
   linkClicks: number;
   ctr: number;

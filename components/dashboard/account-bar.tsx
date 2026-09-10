@@ -67,6 +67,12 @@ export function AccountBar({
               {option.label}
             </option>
           ))}
+          {/* Um preset vindo da URL fora da lista faria o select exibir a
+              primeira opção, mentindo sobre o filtro em vigor. */}
+          {!custom &&
+            !PRESET_OPTIONS.some((option) => option.value === filters.preset) && (
+              <option value={filters.preset}>{filters.preset}</option>
+            )}
           <option value="custom">Personalizado…</option>
         </select>
 

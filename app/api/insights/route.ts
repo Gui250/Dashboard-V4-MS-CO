@@ -8,6 +8,7 @@ import {
   resolveAccounts,
   median,
   MetaError,
+  type Granularity,
   type Query,
 } from "@/lib/meta";
 import type { Payload, Row } from "@/lib/meta-types";
@@ -54,9 +55,14 @@ export async function GET(request: Request) {
   const statusParam = params.get("status");
   const status = (["active", "paused"] as const).find((s) => s === statusParam) ?? "all";
 
+  const granularityParam = params.get("granularity");
+  const granularity: Granularity =
+    (["day", "week", "month"] as const).find((g) => g === granularityParam) ?? "day";
+
   const query: Query = {
     accountId: account.id,
     status,
+    granularity,
     since: custom ? since : undefined,
     until: custom ? until : undefined,
     preset,

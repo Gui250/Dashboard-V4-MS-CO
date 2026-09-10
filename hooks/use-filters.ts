@@ -16,8 +16,10 @@ export type Filters = {
   sort: string;
   /** Anúncio focado ao clicar na pista de criativos. */
   ad: string;
-  /** Métrica plotada na série temporal. */
+  /** Leitura ativa da série: retorno | custo | fadiga. */
   metric: string;
+  /** Tamanho do balde da série: dia, semana ou mês. */
+  granularity: "day" | "week" | "month";
 };
 
 const DEFAULTS: Filters = {
@@ -32,7 +34,8 @@ const DEFAULTS: Filters = {
   q: "",
   sort: "spend_desc",
   ad: "",
-  metric: "spend",
+  metric: "retorno",
+  granularity: "day",
 };
 
 /**
@@ -84,6 +87,7 @@ export function useFilters() {
     }
     query.set("level", filters.level);
     if (filters.status !== "all") query.set("status", filters.status);
+    if (filters.granularity !== "day") query.set("granularity", filters.granularity);
     return `/api/insights?${query}`;
   }, [
     filters.account,
@@ -92,6 +96,7 @@ export function useFilters() {
     filters.preset,
     filters.level,
     filters.status,
+    filters.granularity,
   ]);
 
   return { filters, set, queryKey };
@@ -103,7 +108,10 @@ export const PRESET_OPTIONS = [
   { value: "last_7d", label: "Últimos 7 dias" },
   { value: "last_14d", label: "Últimos 14 dias" },
   { value: "last_30d", label: "Últimos 30 dias" },
+  // Períodos longos são o que dá sentido à granularidade mensal.
+  { value: "last_90d", label: "Últimos 90 dias" },
   { value: "this_month", label: "Este mês" },
   { value: "last_month", label: "Mês passado" },
+  { value: "this_year", label: "Este ano" },
   { value: "maximum", label: "Todo o período" },
 ] as const;
