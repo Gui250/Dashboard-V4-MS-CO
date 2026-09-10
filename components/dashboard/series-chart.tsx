@@ -17,6 +17,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { FunnelChart, type FunnelStage } from "@/components/ui/funnel-chart";
 import { cn } from "@/lib/utils";
 import { count, decimal, money, moneyExact, percent } from "@/lib/format";
 import type { SeriesPoint } from "@/lib/meta-types";
@@ -100,12 +101,14 @@ export function SeriesChart({
   series,
   granularity,
   view,
+  resultLabel,
   onGranularityChange,
   onViewChange,
 }: {
   series: SeriesPoint[];
   granularity: Granularity;
   view: ViewKey;
+  resultLabel: string | null;
   onGranularityChange: (value: Granularity) => void;
   onViewChange: (value: ViewKey) => void;
 }) {
@@ -133,6 +136,32 @@ export function SeriesChart({
     const stop = max === min ? 0 : (max - avg) / (max - min);
     return { average: avg, gradientStop: Math.max(0, Math.min(1, stop)) };
   }, [series]);
+
+  /**
+   * Impressões, cliques e resultados somam entre baldes — alcance e frequência
+   * não, e por isso ficam de fora do funil. O último estágio só entra quando o
+   * objetivo produziu resultado; sem isso o funil terminaria num zero que
+   * parece queda de desempenho e é só ausência de evento.
+   */
+  const funnel = useMemo<FunnelStage[]>(() => {
+    const impressions = series.reduce((sum, p) => sum + p.impressions, 0);
+    const linkClicks = series.reduce((sum, p) => sum + p.linkClicks, 0);
+    const results = series.reduce((sum, p) => sum + (p.results ?? 0), 0);
+    if (impressions <= 0) return [];
+
+    const stages: FunnelStage[] = [
+      { label: "Impressões", value: impressions, color: "var(--chart-3)" },
+      { label: "Cliques no link", value: linkClicks, color: "var(--chart-2)" },
+    ];
+    if (results > 0) {
+      stages.push({
+        label: resultLabel ?? "Resultados",
+        value: results,
+        color: "var(--chart-1)",
+      });
+    }
+    return stages;
+  }, [series, resultLabel]);
 
   const config = useMemo<ChartConfig>(
     () =>
@@ -301,6 +330,17 @@ export function SeriesChart({
             )}
           </ComposedChart>
         </ChartContainer>
+      )}
+
+      {funnel.length > 1 && (
+        <div className="border-line mt-5 border-t pt-5">
+          <h3 className="eyebrow mb-1">Do impacto ao resultado</h3>
+          <p className="text-muted-foreground mb-4 text-xs leading-relaxed">
+            A taxa fica sobre cada gargalo: é a passagem de uma etapa para a
+            seguinte no período inteiro.
+          </p>
+          <FunnelChart data={funnel} />
+        </div>
       )}
     </section>
   );
