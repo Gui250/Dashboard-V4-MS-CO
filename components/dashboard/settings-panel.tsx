@@ -13,6 +13,8 @@ type Status = {
   apiVersion: string;
   accounts: Account[];
   locked: Record<"accessToken" | "appSecret" | "apiVersion" | "accounts", boolean>;
+  /** false em serverless: o disco é somente leitura e a tela nunca grava. */
+  canPersist: boolean;
   defaultApiVersion: string;
 };
 
@@ -121,11 +123,26 @@ export function SettingsPanel({
       ) : !status ? (
         <div className="bg-secondary h-40 animate-pulse rounded-md" />
       ) : lockedAll ? (
-        <p className="border-border bg-surface-raised text-muted-foreground rounded-md border p-4 text-sm">
-          As credenciais vêm das variáveis de ambiente (<code>META_ACCESS_TOKEN</code>) e
-          têm precedência sobre qualquer coisa configurada aqui. Para gerenciar pela tela,
-          remova a variável do ambiente.
-        </p>
+        <div className="border-border bg-surface-raised text-muted-foreground space-y-2 rounded-md border p-4 text-sm">
+          <p className="text-foreground font-medium">
+            O token vem das variáveis de ambiente
+          </p>
+          {status!.canPersist ? (
+            <p>
+              <code className="tnum">META_ACCESS_TOKEN</code> está definido e tem
+              precedência sobre o que for configurado aqui. Para gerenciar por esta
+              tela, apague a variável do <code className="tnum">.env.local</code> e
+              reinicie o servidor.
+            </p>
+          ) : (
+            <p>
+              Este servidor não grava em disco, então a troca é feita onde o serviço
+              guarda as variáveis. Na Vercel: <strong>Settings → Environment
+              Variables</strong> → editar <code className="tnum">META_ACCESS_TOKEN</code>{" "}
+              → <strong>Redeploy</strong>. A alteração só vale no próximo deploy.
+            </p>
+          )}
+        </div>
       ) : (
         <form
           onSubmit={(event) => {

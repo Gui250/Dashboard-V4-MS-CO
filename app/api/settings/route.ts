@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  canPersist,
   clearCredentials,
   DEFAULT_API_VERSION,
   getCredentials,
@@ -37,6 +38,7 @@ export async function GET() {
     apiVersion: credentials.apiVersion,
     accounts: credentials.accounts,
     locked: lockedByEnv(),
+    canPersist: canPersist(),
     defaultApiVersion: DEFAULT_API_VERSION,
   });
 }

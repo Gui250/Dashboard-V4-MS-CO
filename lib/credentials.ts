@@ -1,5 +1,5 @@
 import "server-only";
-import { chmodSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mask, parseAccounts, type StoredAccount } from "./format";
 
@@ -59,6 +59,21 @@ export function lockedByEnv() {
     apiVersion: Boolean(process.env.META_API_VERSION),
     accounts: parseAccounts(process.env.META_AD_ACCOUNTS).length > 0,
   };
+}
+
+/**
+ * Em serverless (Vercel, Lambda) o diretório do app é somente leitura, então a
+ * tela nunca vai conseguir gravar. Saber disso ANTES muda o conselho que damos:
+ * "remova a variável do ambiente" é correto na sua máquina e desastroso na
+ * Vercel, onde deixaria a pessoa sem token e sem como definir um.
+ */
+export function canPersist(): boolean {
+  try {
+    accessSync(process.cwd(), constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function saveCredentials(patch: Partial<Credentials>): void {
