@@ -291,21 +291,10 @@ export function CreativeTrack({
                       selectedAd && !selected && "opacity-40",
                     )}
                   >
-                    {creative?.thumbnailUrl ? (
-                      /* URL assinada e efêmera do CDN da Meta — next/image
-                         tentaria cachear o que expira em horas. */
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={creative.thumbnailUrl}
-                        alt=""
-                        loading="lazy"
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-muted-foreground tnum flex size-full items-center justify-center text-[10px]">
-                        {item.index + 1}
-                      </span>
-                    )}
+                    <RailThumb
+                      url={creative?.coverUrl ?? creative?.thumbnailUrl ?? null}
+                      position={item.index + 1}
+                    />
                   </span>
                   {alert && (
                     <span className="text-destructive tnum mt-1 block text-center text-[10px] font-semibold whitespace-nowrap">
@@ -679,4 +668,38 @@ function formatRatio(value: number): string {
   return value >= 10
     ? String(Math.round(value))
     : value.toFixed(1).replace(".", ",");
+}
+
+
+/**
+ * A miniatura de 44px usa a capa em alta, não o thumbnail de 64px da Graph API:
+ * aquele é um recorte escuro demais para se reconhecer nesse tamanho, e a capa
+ * já foi baixada para o painel de detalhe — o navegador reaproveita a mesma URL.
+ *
+ * Sem onError, uma URL de CDN caducada deixava a caixa vazia em silêncio, sem
+ * dar pista de que faltava algo.
+ */
+function RailThumb({ url, position }: { url: string | null; position: number }) {
+  const [broken, setBroken] = useState(false);
+
+  if (!url || broken) {
+    return (
+      <span className="text-muted-foreground tnum flex size-full items-center justify-center text-[10px]">
+        {position}
+      </span>
+    );
+  }
+
+  return (
+    /* URL assinada e efêmera do CDN da Meta — next/image tentaria cachear
+       o que expira em horas. */
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      onError={() => setBroken(true)}
+      className="size-full object-cover"
+    />
+  );
 }
