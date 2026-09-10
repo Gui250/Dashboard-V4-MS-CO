@@ -9,7 +9,11 @@ import { Num } from "./num";
  * isto é a linha de apoio.
  */
 export function MetricStrip({ totals }: { totals: Row }) {
-  const cells: { label: string; value: number | null; format: (v: never) => string }[] = [
+  const cells: {
+    label: string;
+    value: number | null;
+    format: (v: never) => string;
+  }[] = [
     { label: "Investido", value: totals.spend, format: money as never },
     { label: "Impressões", value: totals.impressions, format: count as never },
     { label: "Alcance", value: totals.reach, format: count as never },
@@ -22,15 +26,26 @@ export function MetricStrip({ totals }: { totals: Row }) {
       value: totals.results,
       format: count as never,
     },
-    { label: "Custo/result.", value: totals.costPerResult, format: moneyExact as never },
-    { label: "ROAS", value: totals.roas, format: ((v: number | null) => (v === null ? "—" : `${v.toFixed(2).replace(".", ",")}×`)) as never },
+    {
+      label: "Custo/result.",
+      value: totals.costPerResult,
+      format: moneyExact as never,
+    },
+    {
+      label: "ROAS",
+      value: totals.roas,
+      format: ((v: number | null) =>
+        v === null ? "—" : `${v.toFixed(2).replace(".", ",")}×`) as never,
+    },
   ];
 
   return (
     <dl className="border-border bg-card grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-3 lg:grid-cols-5">
       {cells.map((cell) => (
         <div key={cell.label} className="bg-card px-4 py-3.5">
-          <dt className="text-muted-foreground truncate text-[11px]">{cell.label}</dt>
+          <dt className="text-muted-foreground truncate text-[11px]">
+            {cell.label}
+          </dt>
           <dd className="mt-0.5 text-xl font-medium">
             <Num value={cell.value} format={cell.format} />
           </dd>
