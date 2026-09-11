@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     // Paralelo, não em batch: a doc é explícita que cada sub-requisição de um
     // batch conta separadamente para a cota, então batch só pouparia round-trips.
     // Quem realmente corta chamadas é o cache do Next em lib/meta.ts.
-    const [meta, totalsRows, series, adRows, levelRows, platforms] =
+    const [meta, totalsRows, { points: series, conversionLabel }, adRows, levelRows, platforms] =
       await Promise.all([
         getAccountMeta(account.id),
         getInsights(query, "account"),
@@ -119,6 +119,18 @@ export async function GET(request: Request) {
       actions: {}, costPerAction: {},
     };
 
+    let totals = totalsRows[0] ?? empty;
+    if (conversionLabel) {
+      // A linha da conta escolhe um tipo de ação só; a soma por campanha é o total real.
+      const results = series.reduce((sum, point) => sum + (point.results ?? 0), 0);
+      totals = {
+        ...totals,
+        results,
+        resultLabel: conversionLabel,
+        costPerResult: results > 0 ? totals.spend / results : null,
+      };
+    }
+
     const payload: Payload = {
       account: {
         id: account.id,
@@ -131,7 +143,7 @@ export async function GET(request: Request) {
         until: custom ? until! : (series.at(-1)?.date ?? ""),
         preset: preset ?? null,
       },
-      totals: totalsRows[0] ?? empty,
+      totals,
       series,
       rows,
       ads: adRows,

@@ -28,17 +28,6 @@ export function flattenActions(stats?: ActionStat[]): Record<string, number> {
   return out;
 }
 
-/** Primeira chave presente na lista de candidatos. */
-function firstOf(
-  map: Record<string, number>,
-  candidates: readonly string[],
-): { key: string; value: number } | null {
-  for (const key of candidates) {
-    if (map[key] !== undefined) return { key, value: map[key] };
-  }
-  return null;
-}
-
 /**
  * O "resultado" muda conforme o objetivo da campanha — é a mesma lógica que a
  * coluna Resultados do Gerenciador aplica. Ordem = preferência.
@@ -100,21 +89,87 @@ export const RESULT_LABELS: Record<string, string> = {
   reach: "Alcance",
 };
 
+/** action_type que conta como resultado para este objetivo, ou null. */
+function resultKey(objective: string | undefined, actions: Record<string, number>) {
+  const candidates = [
+    ...(RESULT_CANDIDATES[objective ?? ""] ?? []),
+    ...RESULT_FALLBACK,
+  ];
+  return candidates.find((key) => actions[key] !== undefined) ?? null;
+}
+
 export function pickResult(
   objective: string | undefined,
   actions: Record<string, number>,
   costPerAction: Record<string, number>,
 ) {
-  const candidates = [
-    ...(RESULT_CANDIDATES[objective ?? ""] ?? []),
-    ...RESULT_FALLBACK,
-  ];
-  const hit = firstOf(actions, candidates);
-  if (!hit) return { results: null, resultLabel: null, costPerResult: null };
+  const key = resultKey(objective, actions);
+  if (!key) return { results: null, resultLabel: null, costPerResult: null };
   return {
-    results: hit.value,
-    resultLabel: RESULT_LABELS[hit.key] ?? hit.key,
-    costPerResult: costPerAction[hit.key] ?? null,
+    results: actions[key],
+    resultLabel: RESULT_LABELS[key] ?? key,
+    costPerResult: costPerAction[key] ?? null,
+  };
+}
+
+/** Resultado de campanha de tráfego ou engajamento — não é conversão. */
+const NOT_CONVERSION = new Set([
+  "link_click",
+  "landing_page_view",
+  "post_engagement",
+  "page_engagement",
+]);
+
+export type CampaignBucket = {
+  campaignId: string;
+  date: string;
+  objective?: string;
+  actions: Record<string, number>;
+};
+
+/**
+ * A linha da conta vem sem `objective` — a Meta só o devolve por campanha —,
+ * então pickResult() nela escolhe UM action_type pela ordem do fallback. Numa
+ * conta que mistura formulário e WhatsApp, o total mostrava só os leads.
+ *
+ * Conversões da conta = soma do resultado de cada campanha, escolhido pelo
+ * objetivo dela, que é como o Gerenciador conta. Tráfego e engajamento ficam de
+ * fora: clique não é conversão.
+ *
+ * O tipo de cada campanha é escolhido no período inteiro e aplicado a todos os
+ * baldes. Escolher por balde faria uma campanha de formulário contar conversas
+ * nos dias sem lead. Contagem de ação soma entre dias (reach é que não soma).
+ *
+ * null quando nenhuma campanha do período converte: aí vale o pickResult().
+ */
+export function conversionsByDate(buckets: CampaignBucket[]) {
+  const period = new Map<string, { objective?: string; actions: Record<string, number> }>();
+  for (const b of buckets) {
+    const campaign = period.get(b.campaignId) ?? { objective: b.objective, actions: {} };
+    for (const [type, n] of Object.entries(b.actions)) {
+      campaign.actions[type] = (campaign.actions[type] ?? 0) + n;
+    }
+    period.set(b.campaignId, campaign);
+  }
+
+  const keys = new Map<string, string>();
+  for (const [id, campaign] of period) {
+    const key = resultKey(campaign.objective, campaign.actions);
+    if (key && !NOT_CONVERSION.has(key)) keys.set(id, key);
+  }
+  if (!keys.size) return null;
+
+  const byDate = new Map<string, number>();
+  for (const b of buckets) {
+    const key = keys.get(b.campaignId);
+    byDate.set(b.date, (byDate.get(b.date) ?? 0) + (key ? (b.actions[key] ?? 0) : 0));
+  }
+
+  // Um tipo só mantém o nome dele ("Leads"); tipos misturados viram "Conversões".
+  const labels = new Set([...keys.values()].map((key) => RESULT_LABELS[key] ?? key));
+  return {
+    label: labels.size === 1 ? [...labels][0] : "Conversões",
+    byDate,
   };
 }
 

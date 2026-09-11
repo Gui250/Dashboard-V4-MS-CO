@@ -97,6 +97,10 @@ Erros aqui não quebram nada — produzem números errados que parecem certos.
   `comment` e `link_click`. Somar tudo duplica.
 - **`reach`, `frequency` e `cpp` não somam** entre linhas nem entre dias. Trocar
   de período refaz a consulta; nunca agregue no cliente.
+- **A linha da conta vem sem `objective`.** `pickResult()` nela escolhe um
+  action_type só; numa conta com formulário + WhatsApp o total mostrava só os
+  leads. Conversões da conta = soma do resultado de cada campanha
+  (`conversionsByDate`), com o tipo fixado no período e aplicado a cada balde.
 - **Mediana, não média**, no limiar de alerta: um CPM de R$157 arrasta a média
   sozinho.
 - **Não enviar `action_attribution_windows` nem `use_unified_attribution_setting`** —

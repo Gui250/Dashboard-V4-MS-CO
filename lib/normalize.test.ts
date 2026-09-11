@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   conversionRate,
+  conversionsByDate,
   costFactors,
   flattenActions,
   median,
@@ -227,4 +228,34 @@ test("fatores sem base viram null, nunca Infinity", () => {
   // Sem cliques não há taxa de conversão possível.
   assert.equal(conversionRate(0, 10), null);
   assert.equal(conversionRate(100, null), null);
+});
+
+test("conversões da conta somam o resultado de cada campanha", () => {
+  // Formato da JC Indenizações: formulário + WhatsApp + reconhecimento.
+  const form = "OUTCOME_LEADS";
+  const out = conversionsByDate([
+    // Formulário: lead no dia 1; no dia 2 só conversa, que não é o resultado dela.
+    { campaignId: "form", date: "d1", objective: form, actions: { "onsite_conversion.lead_grouped": 5, lead: 5, "onsite_conversion.messaging_conversation_started_7d": 2 } },
+    { campaignId: "form", date: "d2", objective: form, actions: { "onsite_conversion.messaging_conversation_started_7d": 3 } },
+    // WhatsApp com objetivo de leads: o resultado é a conversa.
+    { campaignId: "zap", date: "d1", objective: form, actions: { "onsite_conversion.messaging_conversation_started_7d": 20 } },
+    { campaignId: "zap", date: "d2", objective: form, actions: { "onsite_conversion.messaging_conversation_started_7d": 10 } },
+    // Reconhecimento cai em clique no link — não é conversão.
+    { campaignId: "recon", date: "d2", objective: "OUTCOME_AWARENESS", actions: { link_click: 40 } },
+  ]);
+  assert.ok(out);
+  assert.equal(out.label, "Conversões", "leads + conversas misturados");
+  assert.equal(out.byDate.get("d1"), 25);
+  assert.equal(out.byDate.get("d2"), 10, "formulário não conta conversa no dia sem lead");
+
+  // Um tipo só mantém o nome dele.
+  assert.equal(
+    conversionsByDate([{ campaignId: "a", date: "d1", objective: form, actions: { lead: 3 } }])?.label,
+    "Leads",
+  );
+  // Sem conversão nenhuma: null, e o chamador mantém o pickResult da conta.
+  assert.equal(
+    conversionsByDate([{ campaignId: "a", date: "d1", objective: "LINK_CLICKS", actions: { link_click: 9 } }]),
+    null,
+  );
 });

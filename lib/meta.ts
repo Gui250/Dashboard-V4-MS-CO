@@ -8,7 +8,7 @@ import type {
   Row,
   SeriesPoint,
 } from "./meta-types";
-import { normalizeRow, num } from "./normalize";
+import { conversionsByDate, flattenActions, normalizeRow, num } from "./normalize";
 import { getCredentials, type StoredAccount } from "./credentials";
 
 export { flattenActions, median, normalizeRow, pickResult, RESULT_LABELS } from "./normalize";
@@ -241,18 +241,51 @@ export async function getInsights(q: Query, level: Row["level"]): Promise<Row[]>
   return rows.map((row) => normalizeRow(row, level));
 }
 
-export async function getSeries(q: Query): Promise<SeriesPoint[]> {
-  const rows = await fetchAll<InsightRow>(`act_${q.accountId}/insights`, {
-    level: "account",
-    fields: BASE_FIELDS.join(","),
+/**
+ * Série diária da conta. `conversionLabel` vem preenchido quando alguma campanha
+ * converte: aí `results` de cada balde é a soma por campanha (ver
+ * conversionsByDate) e o total da conta deve ser a soma dos baldes.
+ */
+export async function getSeries(
+  q: Query,
+): Promise<{ points: SeriesPoint[]; conversionLabel: string | null }> {
+  const common = {
     time_increment: TIME_INCREMENT[q.granularity ?? "day"],
     limit: "500",
     ...timeParams(q.since, q.until, q.preset),
-  });
+  };
+  const [rows, campaignRows] = await Promise.all([
+    fetchAll<InsightRow>(`act_${q.accountId}/insights`, {
+      level: "account",
+      fields: BASE_FIELDS.join(","),
+      ...common,
+    }),
+    // A linha da conta vem sem `objective`; o resultado só se decide por campanha.
+    fetchAll<InsightRow>(`act_${q.accountId}/insights`, {
+      level: "campaign",
+      fields: "campaign_id,objective,actions",
+      ...common,
+    }),
+  ]);
 
-  return rows
+  const conversions = conversionsByDate(
+    campaignRows.map((raw) => ({
+      campaignId: raw.campaign_id ?? "",
+      date: raw.date_start ?? "",
+      objective: raw.objective,
+      actions: flattenActions(raw.actions),
+    })),
+  );
+
+  const points = rows
     .map((raw) => {
       const row = normalizeRow(raw, "account");
+      const results = conversions
+        ? (conversions.byDate.get(raw.date_start ?? "") ?? 0)
+        : row.results;
+      const costPerResult = conversions
+        ? results ? row.spend / results : null
+        : row.costPerResult;
       return {
         date: raw.date_start ?? "",
         spend: row.spend,
@@ -266,12 +299,14 @@ export async function getSeries(q: Query): Promise<SeriesPoint[]> {
         ctr: row.ctr,
         cpc: row.cpc,
         cpm: row.cpm,
-        results: row.results,
-        costPerResult: row.costPerResult,
+        results,
+        costPerResult,
       };
     })
     .filter((point) => point.date)
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  return { points, conversionLabel: conversions?.label ?? null };
 }
 
 /**
