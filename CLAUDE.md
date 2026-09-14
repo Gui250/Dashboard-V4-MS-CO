@@ -54,12 +54,18 @@ app/page.tsx  ──►  <Dashboard>  ──► useSWR(120s) ──► /api/insi
 
 ## Credenciais
 
-Precedência: **variáveis de ambiente vencem sempre**, senão
-`.meta-credentials.json` na raiz (modo `0600`, no `.gitignore`), gravado pela
-tela de configuração. Quando o env define um campo, `lockedByEnv()` marca e a
-tela desabilita — formulário web não sobrescreve o que a plataforma define.
+Precedência: **o que a tela salvou vence**, senão variáveis de ambiente. A tela
+grava em `.meta-credentials.json` (modo `0600`, no `.gitignore`); se o disco é
+somente leitura (Vercel), grava num cookie httpOnly cifrado com AES-GCM, chave
+derivada de `SETTINGS_SECRET` || `META_APP_SECRET` || `META_ACCESS_TOKEN`, que
+vale só naquele navegador. `DELETE /api/settings` volta ao ambiente.
 
-O token nunca vai ao browser: só `mask()` atravessa o fio.
+Já foi o contrário (env travava a tela). Foi invertido porque um
+`META_ACCESS_TOKEN` bloqueado pela Meta deixava o painel sem saída. Não volte.
+
+`getCredentials()` é **async** (lê `cookies()`), então tudo em `lib/meta.ts`
+passa por `session()`. O token nunca vai ao browser em claro: só `mask()` e o
+cookie cifrado atravessam o fio.
 
 **Não há portão por origem da requisição, e não adicione um.** Já existiram dois:
 o primeiro testava o header `Host` (falsificável); o segundo testava `NODE_ENV` +
@@ -69,14 +75,11 @@ dono da máquina e protegiam pouco: o `GET` só devolve máscara, então o formu
 não vaza o token; o pior caso é vandalismo.
 
 `resolveAccounts()` (`lib/meta.ts`) descobre as contas via `/me/adaccounts`
-quando há token mas nenhuma lista configurada. Sem isso, um deploy com só
-`META_ACCESS_TOKEN` fica preso: sem contas a home cai na tela de conexão, que
-está travada pelo ambiente e não grava em disco somente leitura.
+quando há token mas nenhuma lista configurada, para um deploy com só
+`META_ACCESS_TOKEN` não cair na tela de conexão.
 
-Os controles que sobraram são reais e não-heurísticos:
-- `META_ACCESS_TOKEN` no ambiente vence e deixa a tela só de leitura (409 no POST).
-- Em serverless o disco é somente leitura; `saveCredentials` lança e vira 501 com
-  mensagem, em vez de 500 mudo.
+`saveCredentials` só lança (vira 501 com mensagem) quando não há disco gravável
+nem segredo para cifrar o cookie.
 
 A exposição séria num deploy é outra: **o painel não tem autenticação nenhuma**,
 e quem abrir a URL vê o gasto da conta.
@@ -116,6 +119,9 @@ Erros aqui não quebram nada — produzem números errados que parecem certos.
   painel avisa em vez de mostrar zero.
 - **Rankings retornam `UNKNOWN` abaixo de 500 impressões** — significa dados
   insuficientes, não desempenho ruim.
+- **"API access blocked." (código 200) é o app da Meta restrito**, não permissão
+  faltando — falha até em `/me`, e qualquer token do mesmo app falha igual.
+  `explain()` em `lib/meta.ts` traduz.
 - **Erro 190/102/200 é fatal** (token morto, exige ação); 4/17/613/80004 é rate
   limit e passa sozinho. `MetaError.fatal` carrega essa distinção e o SWR não
   re-tenta os fatais.

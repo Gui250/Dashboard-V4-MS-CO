@@ -15,34 +15,35 @@ Não é preciso editar arquivo nenhum.
 
 ## Onde ficam as credenciais
 
-Duas origens, nesta ordem de precedência:
+Nesta ordem de precedência:
 
-1. **Variáveis de ambiente** (`META_ACCESS_TOKEN`, `META_APP_SECRET`,
-   `META_AD_ACCOUNTS`, `META_API_VERSION`). Vencem sempre. É assim que se
-   configura em servidor. Quando definidas, a tela fica só de leitura — um
-   formulário web não deve poder sobrescrever o que a plataforma define.
-2. **`.meta-credentials.json`** na raiz do projeto, gravado pela própria tela,
-   com permissão `0600` e fora do Git. É o caminho de quem roda na própria máquina.
+1. **O que a tela salvou.** Na própria máquina vai para `.meta-credentials.json`
+   (permissão `0600`, fora do Git). Em serverless, onde o disco é somente
+   leitura, vai para um cookie httpOnly cifrado (AES-GCM, chave derivada de
+   `SETTINGS_SECRET`, `META_APP_SECRET` ou `META_ACCESS_TOKEN`) que só vale
+   naquele navegador. "Voltar a usar o token do ambiente" apaga o que foi salvo.
+2. **Variáveis de ambiente** (`META_ACCESS_TOKEN`, `META_APP_SECRET`,
+   `META_AD_ACCOUNTS`, `META_API_VERSION`), quando a tela não salvou nada.
+
+A tela vence porque um token do ambiente bloqueado pela Meta deixava o painel
+sem saída: o formulário travava e só um redeploy trocava o token.
 
 O token **nunca** vai para o `localStorage` nem para o bundle do browser. A tela
-só recebe de volta uma versão mascarada (`EAAG12••••••••9876`) — o valor cheio
-não trafega no sentido servidor → cliente.
+só recebe de volta uma versão mascarada (`EAAG12••••••••9876`); o cookie leva o
+token cifrado, ilegível para o JS da página e para quem o copiar.
 
 Não há portão por origem da requisição. Já houve — duas versões dele — e as duas
-bloquearam o dono na própria máquina enquanto protegiam pouco. O controle real é
-a variável de ambiente: onde ela está definida, a tela não grava. E em serverless
-(Vercel, Lambda) o disco é somente leitura, então a gravação falha sozinha, com
-mensagem explicando o porquê.
+bloquearam o dono na própria máquina enquanto protegiam pouco.
 
 > **Este painel não tem login.** Quem abrir a URL vê o gasto da conta. Essa é a
 > exposição que importa num deploy — o formulário de credencial não é, porque o
 > `GET` só devolve máscara e o token nunca sai pelo fio. Antes de publicar: ponha
-> autenticação na frente e passe o token por `META_ACCESS_TOKEN` no ambiente.
+> autenticação na frente.
 
 ## Publicar (Vercel e afins)
 
-Lá a tela **não** consegue salvar: o disco é somente leitura. As credenciais têm
-que vir das variáveis de ambiente do serviço.
+Lá o disco é somente leitura: as variáveis de ambiente valem para todo mundo, e um
+token colado na tela vale só no navegador de quem colou (cookie cifrado).
 
 | Variável | |
 |---|---|

@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  canPersist,
   clearCredentials,
   DEFAULT_API_VERSION,
+  envHasToken,
   getCredentials,
-  lockedByEnv,
   mask,
   saveCredentials,
   type StoredAccount,
@@ -12,49 +11,35 @@ import {
 import { verifyToken } from "@/lib/meta";
 
 /**
- * Onde este painel guarda credencial é decisão de quem o hospeda, não de uma
- * heurística sobre a origem da requisição:
- *
- * - `META_ACCESS_TOKEN` no ambiente vence e deixa a tela só de leitura. É o
- *   controle de produção, e é não-falsificável.
- * - Sem isso, a tela grava em arquivo. Em serverless o disco é somente leitura
- *   e a gravação falha sozinha, com a mensagem abaixo.
+ * O que a tela salva vence o ambiente. Um `META_ACCESS_TOKEN` que a Meta
+ * bloqueou deixava o painel sem saída: a tela travava e só um redeploy trocava
+ * o token. Agora a tela grava em arquivo e, onde o disco é somente leitura
+ * (Vercel), num cookie httpOnly cifrado — só aquele navegador passa a usá-lo.
  *
  * Não há portão por endereço de origem. Já houve, e ele bloqueava o dono na
  * própria máquina enquanto protegia pouco: o `GET` só devolve `mask()`, então o
- * formulário não vaza o token — o pior caso é vandalismo. E a exposição que
- * importa num deploy é outra: o painel inteiro não tem autenticação.
+ * formulário não vaza o token. A exposição que importa num deploy é outra: o
+ * painel inteiro não tem autenticação.
  */
-const READ_ONLY_FS =
-  "Este servidor não permite gravar arquivos, então a tela não pode salvar a credencial. Defina META_ACCESS_TOKEN nas variáveis de ambiente do serviço.";
+const NOWHERE_TO_SAVE =
+  "Este servidor não grava arquivos e não tem segredo para cifrar o cookie. Defina SETTINGS_SECRET (qualquer texto longo e aleatório) nas variáveis de ambiente do serviço.";
 
 /** Estado atual, sempre mascarado — o token cheio nunca volta ao browser. */
 export async function GET() {
-  const credentials = getCredentials();
+  const credentials = await getCredentials();
   return NextResponse.json({
     configured: Boolean(credentials.accessToken),
     accessTokenMask: mask(credentials.accessToken),
     appSecretMask: mask(credentials.appSecret),
     apiVersion: credentials.apiVersion,
     accounts: credentials.accounts,
-    locked: lockedByEnv(),
-    canPersist: canPersist(),
+    fromEnv: credentials.fromEnv,
+    envHasToken: envHasToken(),
     defaultApiVersion: DEFAULT_API_VERSION,
   });
 }
 
 export async function POST(request: Request) {
-  const locked = lockedByEnv();
-  if (locked.accessToken) {
-    return NextResponse.json(
-      {
-        error:
-          "META_ACCESS_TOKEN está definido no ambiente e tem precedência. Remova a variável para gerenciar o token por aqui.",
-      },
-      { status: 409 },
-    );
-  }
-
   const body = (await request.json().catch(() => ({}))) as {
     accessToken?: string;
     appSecret?: string;
@@ -62,8 +47,8 @@ export async function POST(request: Request) {
     accounts?: StoredAccount[];
   };
 
-  const current = getCredentials();
-  // Token em branco no formulário significa "mantém o que já está salvo",
+  const current = await getCredentials();
+  // Token em branco no formulário significa "mantém o que já está valendo",
   // porque a tela nunca recebeu o valor cheio para devolver.
   const accessToken = body.accessToken?.trim() || current.accessToken;
   const appSecret = (body.appSecret ?? current.appSecret).trim();
@@ -99,11 +84,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    saveCredentials({ accessToken, appSecret, apiVersion, accounts });
+    await saveCredentials({ accessToken, appSecret, apiVersion, accounts });
   } catch {
-    // Em serverless (Vercel, Lambda) o diretório do app é somente leitura.
-    // É o sinal honesto de "aqui não dá" — não uma heurística sobre a origem.
-    return NextResponse.json({ error: READ_ONLY_FS }, { status: 501 });
+    return NextResponse.json({ error: NOWHERE_TO_SAVE }, { status: 501 });
   }
 
   return NextResponse.json({
@@ -115,11 +98,8 @@ export async function POST(request: Request) {
   });
 }
 
+/** Apaga o que a tela salvou; o painel volta a usar as variáveis de ambiente. */
 export async function DELETE() {
-  try {
-    clearCredentials();
-  } catch {
-    return NextResponse.json({ error: READ_ONLY_FS }, { status: 501 });
-  }
+  await clearCredentials();
   return NextResponse.json({ ok: true });
 }

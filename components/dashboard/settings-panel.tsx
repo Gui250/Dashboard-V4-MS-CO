@@ -12,9 +12,9 @@ type Status = {
   appSecretMask: string;
   apiVersion: string;
   accounts: Account[];
-  locked: Record<"accessToken" | "appSecret" | "apiVersion" | "accounts", boolean>;
-  /** false em serverless: o disco é somente leitura e a tela nunca grava. */
-  canPersist: boolean;
+  /** O token vigente vem de META_ACCESS_TOKEN (a tela não salvou nada). */
+  fromEnv: boolean;
+  envHasToken: boolean;
   defaultApiVersion: string;
 };
 
@@ -54,7 +54,26 @@ export function SettingsPanel({
 
   const apiVersion = apiVersionInput ?? status?.apiVersion ?? "";
   const chosen = selected ?? (status?.accounts ?? []).map((account) => account.id);
-  const lockedAll = Boolean(status?.locked.accessToken);
+
+  async function resetToEnv() {
+    setState("saving");
+    setError(null);
+    setSaved(false);
+    try {
+      const response = await fetch("/api/settings", { method: "DELETE" });
+      if (!response.ok) {
+        setError("Não foi possível voltar ao token do ambiente.");
+        return;
+      }
+      setSelected(null);
+      await mutate();
+      onSaved();
+    } catch {
+      setError("Falha de rede.");
+    } finally {
+      setState("idle");
+    }
+  }
 
   async function save(accounts?: Account[]) {
     setState("saving");
@@ -122,27 +141,6 @@ export function SettingsPanel({
         </div>
       ) : !status ? (
         <div className="bg-secondary h-40 animate-pulse rounded-md" />
-      ) : lockedAll ? (
-        <div className="border-border bg-surface-raised text-muted-foreground space-y-2 rounded-md border p-4 text-sm">
-          <p className="text-foreground font-medium">
-            O token vem das variáveis de ambiente
-          </p>
-          {status!.canPersist ? (
-            <p>
-              <code className="tnum">META_ACCESS_TOKEN</code> está definido e tem
-              precedência sobre o que for configurado aqui. Para gerenciar por esta
-              tela, apague a variável do <code className="tnum">.env.local</code> e
-              reinicie o servidor.
-            </p>
-          ) : (
-            <p>
-              Este servidor não grava em disco, então a troca é feita onde o serviço
-              guarda as variáveis. Na Vercel: <strong>Settings → Environment
-              Variables</strong> → editar <code className="tnum">META_ACCESS_TOKEN</code>{" "}
-              → <strong>Redeploy</strong>. A alteração só vale no próximo deploy.
-            </p>
-          )}
-        </div>
       ) : (
         <form
           onSubmit={(event) => {
@@ -155,7 +153,7 @@ export function SettingsPanel({
             label="Token de acesso"
             hint={
               status!.configured
-                ? `Salvo: ${status!.accessTokenMask}. Deixe em branco para manter.`
+                ? `${status!.fromEnv ? "Vindo de META_ACCESS_TOKEN" : "Salvo"}: ${status!.accessTokenMask}. Deixe em branco para manter, ou cole outro para substituir.`
                 : "System User token, começa com EAA. Não expira."
             }
           >
@@ -215,13 +213,25 @@ export function SettingsPanel({
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={state === "saving" || (!accessToken && !status!.configured)}
-            className="bg-foreground text-background rounded-md px-4 py-2 text-sm font-semibold disabled:opacity-40"
-          >
-            {state === "saving" ? "Verificando na Meta…" : "Verificar e salvar"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={state === "saving" || (!accessToken && !status!.configured)}
+              className="bg-foreground text-background rounded-md px-4 py-2 text-sm font-semibold disabled:opacity-40"
+            >
+              {state === "saving" ? "Verificando na Meta…" : "Verificar e salvar"}
+            </button>
+            {!status!.fromEnv && status!.envHasToken && (
+              <button
+                type="button"
+                disabled={state === "saving"}
+                onClick={() => void resetToEnv()}
+                className="text-muted-foreground hover:text-foreground text-xs disabled:opacity-40"
+              >
+                Voltar a usar o token do ambiente
+              </button>
+            )}
+          </div>
         </form>
       )}
 
@@ -229,9 +239,7 @@ export function SettingsPanel({
         <section className="mt-7">
           <h3 className="eyebrow mb-1">Contas no seletor</h3>
           <p className="text-muted-foreground mb-3 text-xs">
-            {status!.locked.accounts
-              ? "Definidas por META_AD_ACCOUNTS no ambiente."
-              : "Desmarque as que não quer ver no painel."}
+            Desmarque as que não quer ver no painel.
           </p>
           <ul className="space-y-1.5">
             {status!.accounts.map((account) => (
@@ -240,7 +248,6 @@ export function SettingsPanel({
                   <input
                     type="checkbox"
                     checked={chosen.includes(account.id)}
-                    disabled={status!.locked.accounts}
                     onChange={(event) =>
                       setSelected(
                         event.target.checked
@@ -257,7 +264,7 @@ export function SettingsPanel({
             ))}
           </ul>
 
-          {selected && !status!.locked.accounts && (
+          {selected && (
             <button
               type="button"
               disabled={state === "saving" || chosen.length === 0}
@@ -274,16 +281,15 @@ export function SettingsPanel({
 
       <div className="text-muted-foreground mt-7 space-y-2.5 text-xs leading-relaxed">
         <p>
-          O token é gravado em <code className="tnum">.meta-credentials.json</code> na
-          raiz do projeto, com permissão <code className="tnum">0600</code> e fora do
-          Git. Ele nunca é guardado no browser nem devolvido por esta tela — só a versão
-          mascarada.
+          O que for salvo aqui vale mais que as variáveis de ambiente. Na sua máquina vai
+          para <code className="tnum">.meta-credentials.json</code> (permissão{" "}
+          <code className="tnum">0600</code>, fora do Git); em servidor sem disco
+          gravável, como a Vercel, vai para um cookie cifrado que só vale neste
+          navegador. O token nunca é devolvido por esta tela — só a versão mascarada.
         </p>
         <p className="border-line-bright border-l-2 pl-3">
           Este painel não tem login: quem abrir a URL vê o gasto da conta. Rodando na sua
-          máquina, tudo bem. Antes de publicar, ponha autenticação na frente e passe o
-          token por <code className="tnum">META_ACCESS_TOKEN</code> no ambiente do
-          serviço — a tela então fica só de leitura.
+          máquina, tudo bem. Antes de publicar, ponha autenticação na frente.
         </p>
       </div>
     </div>

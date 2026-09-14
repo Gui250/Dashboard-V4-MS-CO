@@ -13,8 +13,6 @@ import { getCredentials, type StoredAccount } from "./credentials";
 
 export { flattenActions, median, normalizeRow, pickResult, RESULT_LABELS } from "./normalize";
 
-const graphBase = () => `https://graph.facebook.com/${getCredentials().apiVersion}`;
-
 /**
  * A Meta recalcula insights a cada ~15 min e não muda mais depois de 28 dias.
  * O painel pulsa de 2 em 2 minutos, mas o cache do Next absorve a maioria dos
@@ -39,16 +37,19 @@ export class MetaError extends Error {
 
 export type AdAccount = StoredAccount;
 
-export function accounts(): AdAccount[] {
-  return getCredentials().accounts;
+export async function hasToken(): Promise<boolean> {
+  return Boolean((await getCredentials()).accessToken);
 }
 
-export function hasToken(): boolean {
-  return Boolean(getCredentials().accessToken);
+/** Exigido quando o app tem "Require App Secret" ligado, e boa prática sempre. */
+function appSecretProof(accessToken: string, secret: string) {
+  if (!secret) return null;
+  return createHmac("sha256", secret).update(accessToken).digest("hex");
 }
 
-function token(): string {
-  const { accessToken } = getCredentials();
+/** Token, prova e URL base das credenciais vigentes nesta requisição. */
+async function session() {
+  const { accessToken, appSecret, apiVersion } = await getCredentials();
   if (!accessToken) {
     throw new MetaError(
       "Token da Meta não configurado. Abra Configurar acesso e cole o token do System User.",
@@ -56,13 +57,23 @@ function token(): string {
       true,
     );
   }
-  return accessToken;
+  return {
+    accessToken,
+    proof: appSecretProof(accessToken, appSecret),
+    base: `https://graph.facebook.com/${apiVersion}`,
+  };
 }
 
-/** Exigido quando o app tem "Require App Secret" ligado, e boa prática sempre. */
-function appSecretProof(accessToken: string, secret = getCredentials().appSecret) {
-  if (!secret) return null;
-  return createHmac("sha256", secret).update(accessToken).digest("hex");
+/**
+ * "API access blocked." (código 200) não é permissão faltando: a Meta bloqueou
+ * o app que emitiu o token. Trocar escopo ou gerar outro token no mesmo app não
+ * resolve enquanto o app estiver restrito.
+ */
+function explain(code: number | undefined, message: string): string {
+  if (code === 200 && /api access blocked/i.test(message)) {
+    return "A Meta bloqueou o acesso à API do app que gerou este token (API access blocked). Não é falta de permissão: abra o app em developers.facebook.com/apps e veja o aviso de restrição (Data Use Checkup pendente, verificação da empresa ou violação de política). Enquanto o app estiver bloqueado, qualquer token dele falha — gere o token por outro app e cole em Configurar acesso.";
+  }
+  return message;
 }
 
 /** Rate limit (4/17/613/80004) é temporário; OAuth (190/102/200) é fatal. */
@@ -73,16 +84,15 @@ async function metaFetch<T>(
   params: Record<string, string | undefined>,
   revalidate = REVALIDATE,
 ): Promise<T> {
-  const accessToken = token();
+  const { accessToken, proof, base } = await session();
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") query.set(key, value);
   }
   query.set("access_token", accessToken);
-  const proof = appSecretProof(accessToken);
   if (proof) query.set("appsecret_proof", proof);
 
-  const res = await fetch(`${graphBase()}/${path}?${query}`, {
+  const res = await fetch(`${base}/${path}?${query}`, {
     next: { revalidate, tags: ["meta"] },
   });
 
@@ -95,7 +105,7 @@ async function metaFetch<T>(
       };
       if (body.error) {
         code = body.error.code ?? code;
-        message = body.error.error_user_msg || body.error.message || message;
+        message = explain(code, body.error.error_user_msg || body.error.message || message);
       }
     } catch {
       // corpo não-JSON: fica a mensagem de status
@@ -384,8 +394,7 @@ export async function getCreatives(adIds: string[]): Promise<Creative[]> {
   }
   if (!missing.length) return found;
 
-  const accessToken = token();
-  const proof = appSecretProof(accessToken);
+  const { accessToken, proof, base } = await session();
   const chunks: string[][] = [];
   for (let i = 0; i < missing.length; i += BATCH_MAX) {
     chunks.push(missing.slice(i, i + BATCH_MAX));
@@ -405,7 +414,7 @@ export async function getCreatives(adIds: string[]): Promise<Creative[]> {
       });
       if (proof) body.set("appsecret_proof", proof);
 
-      const res = await fetch(`${graphBase()}/`, {
+      const res = await fetch(`${base}/`, {
         method: "POST",
         body,
         cache: "no-store",
@@ -478,8 +487,7 @@ async function resolveCovers(
   ];
   if (!mediaIds.length) return out;
 
-  const accessToken = token();
-  const proof = appSecretProof(accessToken);
+  const { accessToken, proof, base } = await session();
   const chunks: string[][] = [];
   for (let i = 0; i < mediaIds.length; i += BATCH_MAX) {
     chunks.push(mediaIds.slice(i, i + BATCH_MAX));
@@ -499,7 +507,7 @@ async function resolveCovers(
       });
       if (proof) body.set("appsecret_proof", proof);
 
-      const res = await fetch(`${graphBase()}/`, {
+      const res = await fetch(`${base}/`, {
         method: "POST",
         body,
         cache: "no-store",
@@ -534,12 +542,11 @@ async function resolveCovers(
  *
  * Num deploy é comum definir só `META_ACCESS_TOKEN` e esquecer
  * `META_AD_ACCOUNTS`. Sem isto o painel ficaria preso: sem contas ele cai na
- * tela de conexão, que está travada pelo ambiente e não consegue gravar em
- * disco somente leitura. O token já dá acesso à lista — então busque.
+ * tela de conexão. O token já dá acesso à lista — então busque.
  */
 export async function resolveAccounts(): Promise<AdAccount[]> {
-  const configured = accounts();
-  if (configured.length || !hasToken()) return configured;
+  const { accessToken, accounts: configured } = await getCredentials();
+  if (configured.length || !accessToken) return configured;
 
   try {
     const { data } = await metaFetch<{
@@ -657,8 +664,11 @@ export async function verifyToken(
 
   if (!response.ok || body.error) {
     const code = body.error?.code;
+    const raw = body.error?.message ?? "";
     const message =
-      code === 190
+      /api access blocked/i.test(raw)
+        ? explain(code, raw)
+        : code === 190
         ? "Token expirado, inválido ou revogado. Se você gerou pelo Graph API Explorer, aquele token dura só algumas horas — gere um de System User em business.facebook.com/settings e deixe DESMARCADA a caixa de 60 dias."
         : code === 200 || code === 10
           ? "O token é válido, mas falta a permissão ads_read ou o acesso às contas de anúncio."

@@ -14,7 +14,7 @@ export default async function Page() {
 
   // Sem token ou sem conta liberada não há painel possível — a primeira tela
   // é a de conexão, não uma mensagem mandando editar arquivo na mão.
-  if (!hasToken() || !options.length) {
+  if (!(await hasToken()) || !options.length) {
     return <Setup />;
   }
 
