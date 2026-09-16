@@ -41,6 +41,12 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
   });
 
   const fatal = (error as (Error & { fatal?: boolean }) | undefined)?.fatal;
+  // Antes de o payload chegar, a origem vem da conta escolhida no seletor.
+  const source =
+    data?.source ??
+    accounts.find((account) => account.id === (filters.account || accounts[0]?.id))?.source ??
+    "meta";
+  const platform = source === "google" ? "O Google" : "A Meta";
 
   return (
     <div className="min-h-full">
@@ -64,7 +70,7 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
             }
           >
             <p className="text-foreground font-medium">
-              {fatal ? "A Meta recusou a credencial" : "Não deu para atualizar agora"}
+              {fatal ? `${platform} recusou a credencial` : "Não deu para atualizar agora"}
             </p>
             <p className="mt-1">{(error as Error).message}</p>
             {!fatal && data && (
@@ -100,7 +106,7 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
               onSelect={(ad) => set({ ad, level: ad ? "ad" : filters.level })}
             />
 
-            <MetricStrip totals={data.totals} />
+            <MetricStrip totals={data.totals} source={data.source} />
 
             <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
               <SeriesChart
@@ -118,13 +124,16 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
               rows={data.rows}
               filters={filters}
               medianCostPerResult={data.medianCostPerResult}
+              source={data.source}
               onFilterChange={set}
             />
 
             <footer className="text-muted-foreground pt-1 pb-6 text-[11px]">
               Conta {data.account.name} · {data.account.currency} · fuso{" "}
-              {data.account.timezone}. A Meta recalcula insights a cada ~15 minutos;
-              conversões podem se ajustar por alguns dias.
+              {data.account.timezone}.{" "}
+              {data.source === "google"
+                ? "O Google Ads atualiza relatórios com até 3 horas de atraso; conversões podem se ajustar por dias, conforme a janela de conversão."
+                : "A Meta recalcula insights a cada ~15 minutos; conversões podem se ajustar por alguns dias."}
             </footer>
           </>
         ) : null}
@@ -135,7 +144,7 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
 
 function Loading() {
   return (
-    <div className="space-y-4" aria-busy="true" aria-label="Carregando dados da Meta">
+    <div className="space-y-4" aria-busy="true" aria-label="Carregando dados">
       <div className="border-border bg-card h-56 animate-pulse rounded-lg border" />
       <div className="border-border bg-card h-24 animate-pulse rounded-lg border" />
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">

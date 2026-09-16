@@ -236,48 +236,19 @@ export function SettingsPanel({
       )}
 
       {!statusError && (status?.accounts.length ?? 0) > 0 && (
-        <section className="mt-7">
-          <h3 className="eyebrow mb-1">Contas no seletor</h3>
-          <p className="text-muted-foreground mb-3 text-xs">
-            Desmarque as que não quer ver no painel.
-          </p>
-          <ul className="space-y-1.5">
-            {status!.accounts.map((account) => (
-              <li key={account.id}>
-                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={chosen.includes(account.id)}
-                    onChange={(event) =>
-                      setSelected(
-                        event.target.checked
-                          ? [...chosen, account.id]
-                          : chosen.filter((id) => id !== account.id),
-                      )
-                    }
-                    className="accent-foreground size-3.5"
-                  />
-                  <span className="truncate">{account.name}</span>
-                  <span className="text-muted-foreground tnum text-xs">{account.id}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-
-          {selected && (
-            <button
-              type="button"
-              disabled={state === "saving" || chosen.length === 0}
-              onClick={() =>
-                void save(status!.accounts.filter((account) => chosen.includes(account.id)))
-              }
-              className="border-border mt-3 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-            >
-              Salvar seleção
-            </button>
-          )}
-        </section>
+        <AccountList
+          accounts={status!.accounts}
+          chosen={chosen}
+          dirty={selected !== null}
+          saving={state === "saving"}
+          onChange={setSelected}
+          onSave={() =>
+            void save(status!.accounts.filter((account) => chosen.includes(account.id)))
+          }
+        />
       )}
+
+      {variant === "setup" && <MetaHowTo />}
 
       <div className="text-muted-foreground mt-7 space-y-2.5 text-xs leading-relaxed">
         <p>
@@ -296,7 +267,67 @@ export function SettingsPanel({
   );
 }
 
-function Field({
+/** Contas descobertas pela credencial; desmarcar tira do seletor do painel. */
+export function AccountList({
+  accounts,
+  chosen,
+  dirty,
+  saving,
+  onChange,
+  onSave,
+}: {
+  accounts: Account[];
+  chosen: string[];
+  /** A seleção foi editada e ainda não salva. */
+  dirty: boolean;
+  saving: boolean;
+  onChange: (ids: string[]) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className="mt-7">
+      <h3 className="eyebrow mb-1">Contas no seletor</h3>
+      <p className="text-muted-foreground mb-3 text-xs">
+        Desmarque as que não quer ver no painel.
+      </p>
+      <ul className="space-y-1.5">
+        {accounts.map((account) => (
+          <li key={account.id}>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={chosen.includes(account.id)}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...chosen, account.id]
+                      : chosen.filter((id) => id !== account.id),
+                  )
+                }
+                className="accent-foreground size-3.5"
+              />
+              <span className="truncate">{account.name}</span>
+              <span className="text-muted-foreground tnum text-xs">{account.id}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+
+      {dirty && (
+        <button
+          type="button"
+          disabled={saving || chosen.length === 0}
+          onClick={onSave}
+          className="border-border mt-3 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+        >
+          Salvar seleção
+        </button>
+      )}
+    </section>
+  );
+}
+
+export function Field({
   label,
   hint,
   children,
@@ -311,5 +342,51 @@ function Field({
       {children}
       <span className="text-muted-foreground mt-1.5 block text-[11px]">{hint}</span>
     </label>
+  );
+}
+
+function MetaHowTo() {
+  return (
+    <details className="text-muted-foreground mt-6 text-xs">
+      <summary className="hover:text-foreground cursor-pointer">
+        Como gerar o token do System User
+      </summary>
+      <ol className="mt-3 list-decimal space-y-1.5 pl-4 leading-relaxed">
+        <li>
+          Em{" "}
+          <a
+            className="underline underline-offset-2"
+            href="https://developers.facebook.com/apps"
+            target="_blank"
+            rel="noreferrer"
+          >
+            developers.facebook.com/apps
+          </a>
+          , crie um app do tipo <strong>Empresa</strong> e adicione o produto Marketing API.
+        </li>
+        <li>
+          Em{" "}
+          <a
+            className="underline underline-offset-2"
+            href="https://business.facebook.com/settings"
+            target="_blank"
+            rel="noreferrer"
+          >
+            business.facebook.com/settings
+          </a>
+          , crie um <strong>Usuário do sistema</strong> com função Admin.
+        </li>
+        <li>
+          Nele, <em>Adicionar ativos</em> → Contas de anúncios → marque as contas com
+          permissão <strong>Ver desempenho</strong>.
+        </li>
+        <li>
+          <em>Gerar novo token</em> → escolha o app → marque <code>ads_read</code> e{" "}
+          <code>business_management</code> → deixe <strong>desmarcada</strong> a caixa
+          &ldquo;O token expira em 60 dias&rdquo;.
+        </li>
+        <li>Cole o token acima.</li>
+      </ol>
+    </details>
   );
 }

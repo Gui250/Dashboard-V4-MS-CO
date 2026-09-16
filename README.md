@@ -1,7 +1,8 @@
 # V4 Company MS&CO — Painel de Mídia
 
 Painel de tráfego pago e performance de criativos, lendo a Marketing API da Meta
-direto. Sem banco, sem worker, sem sincronização: a Meta é a fonte da verdade.
+e a Google Ads API direto. Sem banco, sem worker, sem sincronização: a plataforma
+é a fonte da verdade. Cada conta do seletor vem de uma das duas; a tela é a mesma.
 
 ## Rodar
 
@@ -80,6 +81,37 @@ O mesmo roteiro está dentro da tela de conexão, em "Como gerar o token".
 > anúncios ativos, por hora). Para esta conta isso é folgado — o painel gasta
 > ~70 chamadas/hora. Advanced Access só é preciso em escala bem maior.
 
+## Conectar o Google Ads
+
+Uma vez só, ~15 minutos. Tudo pela aba **Google Ads** da tela de conexão.
+
+1. **Developer token** — [ads.google.com/aw/apicenter](https://ads.google.com/aw/apicenter),
+   logado numa conta de **administrador (MCC)**. Com acesso *Teste* ele só lê
+   contas de teste; peça acesso **Básico** para ler contas reais.
+2. **Projeto no Google Cloud** — ative a *Google Ads API*; em *Tela de
+   consentimento OAuth* escolha Externo, adicione o escopo
+   `https://www.googleapis.com/auth/adwords` e **publique o app** (sem isso o
+   refresh token caduca em 7 dias).
+3. **Client OAuth** — *Credenciais* → *ID do cliente OAuth* → tipo **Aplicativo da
+   Web** → cadastre o URI de redirecionamento que a tela mostra
+   (`http://localhost:3000/api/settings/google/oauth` rodando local).
+4. Na tela: developer token, Client ID e Secret → **Salvar e autorizar no
+   Google**. Entre com a conta Google que acessa o Google Ads. O painel troca o
+   código por refresh token, testa e descobre as contas (inclusive as que estão
+   embaixo da MCC).
+
+Onde o painel roda em servidor, as variáveis são `GOOGLE_ADS_DEVELOPER_TOKEN`,
+`GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN` e,
+opcionais, `GOOGLE_ADS_LOGIN_CUSTOMER_ID`, `GOOGLE_ADS_CUSTOMERS`,
+`GOOGLE_ADS_API_VERSION` (padrão `v25`). Salvo pela tela vai para
+`.google-credentials.json`, com as mesmas regras do arquivo da Meta.
+
+O que muda na tela com uma conta Google: não há **alcance** nem **frequência**
+(a API não os reporta), "resultado" é a coluna **Conversões** do Google Ads, o
+"objetivo" é o tipo de campanha (Pesquisa, Performance Max…), a divisão por
+plataforma vira **rede × dispositivo**, e anúncios de pesquisa não têm prévia de
+imagem — a pista mostra posição e título.
+
 ## Como a atualização funciona
 
 O painel busca a cada **2 minutos** (`refreshInterval` em `components/dashboard/dashboard.tsx`).
@@ -98,9 +130,13 @@ Metadados de criativo (miniaturas, nomes) mudam raramente e ficam em cache por 1
 | `lib/normalize.ts` | Lógica pura: achatar `actions[]`, escolher o resultado por objetivo, métricas de vídeo, mediana. Sem rede — é o que os testes cobrem. |
 | `lib/meta.ts` | Cliente da Graph API: versão, token, `appsecret_proof`, cache, paginação, erros. |
 | `lib/meta-types.ts` | Formas cruas da API e a forma normalizada que o cliente consome. |
+| `lib/google-normalize.ts` | Lógica pura do Google Ads: micros → moeda, fração → %, quartis de vídeo, presets → datas. Testado. |
+| `lib/google.ts` | Cliente REST da Google Ads API: OAuth (refresh → access token), GAQL via `searchStream`, descoberta de contas, erros. |
+| `app/api/settings/google/route.ts` | Estado mascarado, validação e gravação da credencial Google. |
+| `app/api/settings/google/oauth/route.ts` | Fluxo OAuth: começa e termina no mesmo arquivo. |
 | `app/api/insights/route.ts` | Único endpoint. Valida a conta contra a allowlist e dispara as consultas em paralelo. |
 | `hooks/use-filters.ts` | Filtros na URL — link compartilhável, botão voltar funciona. |
-| `lib/credentials.ts` | Origem das credenciais: ambiente vence, arquivo local como alternativa. |
+| `lib/credentials.ts` | Origem das credenciais (Meta e Google): a tela vence, ambiente como alternativa. |
 | `app/api/settings/route.ts` | Lê o estado mascarado, valida na Meta e grava. |
 | `components/dashboard/creative-track.tsx` | A pista de criativos. |
 

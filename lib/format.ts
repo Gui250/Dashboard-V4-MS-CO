@@ -90,6 +90,18 @@ export const OBJECTIVE_LABELS: Record<string, string> = {
   POST_ENGAGEMENT: "Engajamento",
   LEAD_GENERATION: "Leads",
   CONVERSIONS: "Conversões",
+  // Google Ads: campaign.advertising_channel_type faz o papel do objetivo.
+  SEARCH: "Pesquisa",
+  DISPLAY: "Display",
+  VIDEO: "Vídeo",
+  SHOPPING: "Shopping",
+  PERFORMANCE_MAX: "Performance Max",
+  DEMAND_GEN: "Demand Gen",
+  MULTI_CHANNEL: "App (multicanal)",
+  LOCAL: "Local",
+  SMART: "Inteligente",
+  HOTEL: "Hotel",
+  TRAVEL: "Viagens",
 };
 
 export const objective = (value: string | undefined): string =>
@@ -97,7 +109,7 @@ export const objective = (value: string | undefined): string =>
 
 export type StoredAccount = { id: string; name: string };
 
-/** META_AD_ACCOUNTS="123:MS&CO|456:Outra". Ids não-numéricos são descartados. */
+/** META_AD_ACCOUNTS="123:MS&CO|456:Outra". Ids não-numéricos são descartados. Vale também para GOOGLE_ADS_CUSTOMERS. */
 export function parseAccounts(raw: string | undefined): StoredAccount[] {
   return (raw ?? "")
     .split("|")

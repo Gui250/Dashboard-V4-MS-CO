@@ -40,6 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .meta-credentials.json
+.google-credentials.json
 
 # O exemplo não tem segredo — é documentação e deve ir para o repositório.
 !.env.local.example

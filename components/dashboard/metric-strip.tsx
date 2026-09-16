@@ -1,14 +1,20 @@
 "use client";
 
 import { count, money, moneyExact, percent } from "@/lib/format";
-import type { Row } from "@/lib/meta-types";
+import type { Payload, Row } from "@/lib/meta-types";
 import { Num } from "./num";
 
 /**
  * Totais do período. Discreto de propósito: a pista de criativos é a manchete,
  * isto é a linha de apoio.
  */
-export function MetricStrip({ totals }: { totals: Row }) {
+export function MetricStrip({
+  totals,
+  source = "meta",
+}: {
+  totals: Row;
+  source?: Payload["source"];
+}) {
   const cells: {
     label: string;
     value: number | null;
@@ -37,7 +43,9 @@ export function MetricStrip({ totals }: { totals: Row }) {
       format: ((v: number | null) =>
         v === null ? "—" : `${v.toFixed(2).replace(".", ",")}×`) as never,
     },
-  ];
+  ]
+    // Google Ads não reporta alcance; um 0 ali seria mentira, não dado.
+    .filter((cell) => source !== "google" || cell.label !== "Alcance");
 
   return (
     <dl className="border-border bg-card grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-3 lg:grid-cols-5">

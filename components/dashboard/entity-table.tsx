@@ -11,7 +11,7 @@ import {
   percent,
   ratio,
 } from "@/lib/format";
-import type { Row } from "@/lib/meta-types";
+import type { Payload, Row } from "@/lib/meta-types";
 import type { Filters } from "@/hooks/use-filters";
 import { Num } from "./num";
 
@@ -52,13 +52,18 @@ export function EntityTable({
   rows,
   filters,
   medianCostPerResult,
+  source = "meta",
   onFilterChange,
 }: {
   rows: Row[];
   filters: Filters;
   medianCostPerResult: number | null;
+  source?: Payload["source"];
   onFilterChange: (patch: Partial<Filters>) => void;
 }) {
+  // Google Ads não reporta alcance por entidade.
+  const columns = source === "google" ? COLUMNS.filter((c) => c.key !== "reach") : COLUMNS;
+
   const objectives = useMemo(
     () => [...new Set(rows.map((row) => row.objective).filter(Boolean))] as string[],
     [rows],
@@ -200,7 +205,7 @@ export function EntityTable({
                     Nome {sortKey === "name" && (sortDirection === "asc" ? "↑" : "↓")}
                   </button>
                 </th>
-                {COLUMNS.map((column) => (
+                {columns.map((column) => (
                   <th
                     key={column.key}
                     scope="col"
@@ -250,7 +255,7 @@ export function EntityTable({
                           ` · hook ${ratio(row.hookRate)} · hold ${ratio(row.holdRate)}`}
                       </span>
                     </th>
-                    {COLUMNS.map((column) => {
+                    {columns.map((column) => {
                       const value = row[column.numeric];
                       const flag = alert && column.key === "costPerResult";
                       return (

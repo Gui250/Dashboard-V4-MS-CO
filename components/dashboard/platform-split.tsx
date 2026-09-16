@@ -11,6 +11,17 @@ const PLATFORM_LABELS: Record<string, string> = {
   messenger: "Messenger",
   threads: "Threads",
   unknown: "Não identificado",
+  // Google Ads: segments.ad_network_type
+  SEARCH: "Pesquisa Google",
+  SEARCH_PARTNERS: "Parceiros de pesquisa",
+  CONTENT: "Rede de Display",
+  YOUTUBE: "YouTube",
+  YOUTUBE_SEARCH: "Busca do YouTube",
+  YOUTUBE_WATCH: "Vídeos do YouTube",
+  GOOGLE_TV: "Google TV",
+  GOOGLE_OWNED_CHANNELS: "Canais do Google",
+  MIXED: "Misto",
+  UNKNOWN: "Não identificado",
 };
 
 const POSITION_LABELS: Record<string, string> = {
@@ -31,10 +42,17 @@ const POSITION_LABELS: Record<string, string> = {
   an_classic: "Audience Network",
   rewarded_video: "Vídeo premiado",
   unknown: "Não identificado",
+  // Google Ads: segments.device
+  MOBILE: "Celular",
+  DESKTOP: "Computador",
+  TABLET: "Tablet",
+  CONNECTED_TV: "TV conectada",
+  OTHER: "Outro dispositivo",
+  UNKNOWN: "Não identificado",
 };
 
 const label = (map: Record<string, string>, key: string) =>
-  map[key] ?? key.replace(/_/g, " ");
+  map[key] ?? key.replace(/_/g, " ").toLowerCase();
 
 /**
  * Barras, não pizza: comparar comprimentos ao longo de um eixo comum é o que o

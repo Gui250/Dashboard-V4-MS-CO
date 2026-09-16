@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { SettingsPanel } from "./settings-panel";
+import { useRouter, useSearchParams } from "next/navigation";
+import { SettingsTabs } from "./settings-tabs";
 
 /**
  * <dialog> nativo: foco preso, Esc para fechar e backdrop já vêm do browser.
@@ -10,7 +10,9 @@ import { SettingsPanel } from "./settings-panel";
  */
 export function SettingsDialog({ onSaved }: { onSaved: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [open, setOpen] = useState(false);
+  const params = useSearchParams();
+  // Voltando do consentimento do Google (/?google=…), o resultado está aqui dentro.
+  const [open, setOpen] = useState(params.has("google"));
   const router = useRouter();
 
   useEffect(() => {
@@ -33,16 +35,16 @@ export function SettingsDialog({ onSaved }: { onSaved: () => void }) {
       <dialog
         ref={dialog}
         onClose={() => setOpen(false)}
-        aria-label="Configurar acesso à Meta"
+        aria-label="Configurar acesso"
         className="bg-card text-foreground border-border m-auto w-[min(38rem,calc(100vw-2rem))] rounded-lg border p-6 backdrop:bg-black/70"
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-extrabold tracking-tight">
-              Configurar acesso à Meta
+              Configurar acesso
             </h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              A credencial é validada na Meta antes de ser gravada.
+              A credencial é validada na plataforma antes de ser gravada.
             </p>
           </div>
           <button
@@ -55,7 +57,7 @@ export function SettingsDialog({ onSaved }: { onSaved: () => void }) {
           </button>
         </div>
 
-        <SettingsPanel
+        <SettingsTabs
           variant="panel"
           onSaved={() => {
             // As contas do seletor vêm do server component, então recarrega.

@@ -5,8 +5,9 @@ import { cn } from "@/lib/utils";
 import { relativeSeconds } from "@/lib/format";
 import { PRESET_OPTIONS, type Filters } from "@/hooks/use-filters";
 import { SettingsDialog } from "./settings-dialog";
+import { SOURCE_LABELS, type Source } from "./settings-tabs";
 
-export type AccountOption = { id: string; name: string };
+export type AccountOption = { id: string; name: string; source: Source };
 
 export function AccountBar({
   accounts,
@@ -24,6 +25,7 @@ export function AccountBar({
   onRefresh: () => void;
 }) {
   const custom = Boolean(filters.since && filters.until);
+  const sources = [...new Set(accounts.map((account) => account.source))];
 
   return (
     <header className="border-border bg-ink/90 sticky top-0 z-30 border-b backdrop-blur">
@@ -40,11 +42,24 @@ export function AccountBar({
           onChange={(event) => onFilterChange({ account: event.target.value, ad: "" })}
           className="border-border bg-surface-raised rounded-md border px-2.5 py-1.5 text-xs"
         >
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
+          {/* Agrupado só quando há as duas plataformas; com uma, o grupo é ruído. */}
+          {sources.length > 1
+            ? sources.map((source) => (
+                <optgroup key={source} label={SOURCE_LABELS[source]}>
+                  {accounts
+                    .filter((account) => account.source === source)
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                </optgroup>
+              ))
+            : accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
         </select>
 
         <select

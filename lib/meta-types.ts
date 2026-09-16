@@ -150,6 +150,8 @@ export type PlatformSlice = {
 };
 
 export type Payload = {
+  /** De onde os números vieram. Decide rótulos e o que não existe (alcance no Google). */
+  source: "meta" | "google";
   account: { id: string; name: string; currency: string; timezone: string };
   period: { since: string; until: string; preset: string | null };
   totals: Row;

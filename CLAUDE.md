@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
-Painel de tráfego pago que lê a Marketing API da Meta ao vivo. Next.js 16 (App
-Router) + React 19 + Tailwind v4 + shadcn/ui (preset `radix-nova`). Interface e
+Painel de tráfego pago que lê a Marketing API da Meta e a Google Ads API ao
+vivo. Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui (preset `radix-nova`). Interface e
 comentários em pt-BR. Sem banco, sem worker, sem cron.
 
 ## Comandos
@@ -15,7 +15,7 @@ npm run dev                                       # localhost:3000
 npm run build                                     # inclui typecheck
 npm run lint
 npm test                                          # node --test lib/*.test.ts
-node --test lib/normalize.test.ts                 # um arquivo
+node --test lib/normalize.test.ts                 # um arquivo (há também google-normalize.test.ts)
 node --test --test-name-pattern "mediana" lib/*.test.ts   # um teste
 npx tsc --noEmit                                  # typecheck isolado
 ```
@@ -25,8 +25,8 @@ stripping. Isso impõe duas regras:
 
 - **Imports em arquivos `*.test.ts` precisam da extensão `.ts`** (`from
   "./normalize.ts"`). Por isso `allowImportingTsExtensions` está no tsconfig.
-- **`lib/normalize.ts` e `lib/format.ts` não podem importar `server-only`,
-  `node:fs` nem sintaxe não-apagável** (ex.: `readonly` em parâmetro de
+- **`lib/normalize.ts`, `lib/google-normalize.ts` e `lib/format.ts` não podem
+  importar `server-only`, `node:fs` nem sintaxe não-apagável** (ex.: `readonly` em parâmetro de
   construtor). São o alvo dos testes. Se precisar mover lógica pura para perto
   do I/O, o teste quebra — mantenha a separação.
 
@@ -37,17 +37,28 @@ app/page.tsx  ──►  <Dashboard>  ──► useSWR(120s) ──► /api/insi
    (server,                (client)                      │
     force-dynamic)                                       ▼
                                               lib/meta.ts (5 fetch paralelos)
+                                              ou lib/google.ts (GAQL searchStream)
                                                          │
-                                              lib/normalize.ts (puro, testado)
+                                              lib/normalize.ts / google-normalize.ts
+                                              (puros, testados)
 ```
+
+A rota decide a origem pela conta pedida: `resolveAccounts()` (Meta) e
+`resolveGoogleAccounts()` (Google) formam a allowlist, cada conta com `source`.
+Os dois produzem o mesmo `Payload`; `Payload.source` diz ao cliente o que
+esconder (alcance/frequência não existem no Google).
 
 - **`lib/normalize.ts` / `lib/format.ts`** — puros, sem rede. Toda a lógica que
   erra silenciosamente números mora aqui, e é o que os testes cobrem.
 - **`lib/meta.ts`** — cliente da Graph API: versão, token, `appsecret_proof`,
   cache, paginação, classificação de erro. `server-only`.
-- **`lib/credentials.ts`** — de onde vem a credencial (abaixo).
+- **`lib/google.ts` / `lib/google-normalize.ts`** — o mesmo par para o Google
+  Ads: cliente REST (`server-only`) e lógica pura.
+- **`lib/credentials.ts`** — de onde vem a credencial (abaixo), Meta e Google.
 - **`app/api/insights/route.ts`** — endpoint único do painel.
 - **`app/api/settings/route.ts`** — lê estado mascarado, valida na Meta, grava.
+- **`app/api/settings/google/route.ts`** — idem para o Google;
+  **`…/google/oauth/route.ts`** é o fluxo OAuth (começa e termina no mesmo GET).
 
 `components/ui/` é gerado pelo shadcn; o que é deste projeto está em
 `components/dashboard/`.
@@ -87,6 +98,49 @@ e quem abrir a URL vê o gasto da conta.
 `app/page.tsx` tem `export const dynamic = "force-dynamic"` porque lê estado
 mutável do disco. Sem isso a home é prerenderizada no build e fica presa na tela
 de setup para sempre.
+
+### Google Ads
+
+Mesma precedência (tela vence ambiente), arquivo `.google-credentials.json` e
+cookie `google-credentials`. A credencial se completa em dois passos: client +
+developer token são salvos primeiro; o refresh token vem do consentimento do
+Google (`/api/settings/google/oauth`), que exige o client já gravado. Por isso
+"a tela salvou algo" para o Google é `clientId`, não o token.
+
+`discover()` em `lib/google.ts` lista as contas: `listAccessibleCustomers`
+devolve só o que o usuário acessa direto (inclusive MCCs, sem dados próprios);
+as contas reais estão em `customer_client` de cada raiz. A primeira MCC
+encontrada vira o `login-customer-id` de todas as consultas.
+
+## Armadilhas da Google Ads API
+
+- **Dinheiro vem em micros** (`cost_micros`, `average_cpc`, `average_cpm`):
+  dividir por 1e6. **`ctr` é fração** (0,05), a Meta manda 5,0 — o painel
+  segue a Meta e multiplica por 100 em `normalizeGoogleRow`.
+- **Não há `reach` nem `frequency`** em relatórios padrão. Ficam em 0 na `Row`
+  e o cliente esconde a célula quando `source === "google"`; não mostre 0.
+- **`conversions` ≠ `all_conversions`.** O painel usa `conversions`, que é a
+  coluna "Conversões" da interface. `conversions_value` só existe se a ação de
+  conversão tem valor; ROAS sai `null` sem isso.
+- **Quartis de vídeo são fração das impressões**, não das reproduções. O
+  painel converte para fração das reproduções (× impressões ÷ views) para bater
+  com a curva de retenção da Meta.
+- **`searchStream` é POST**, então o cache de dados do Next não se aplica; a
+  memoização é em processo (`memo` em `lib/google.ts`, 5 min; conta, 1 h).
+- **Presets de data são calculados** em `presetRange()` no fuso da conta
+  (`customer.time_zone`) e mandados como `BETWEEN`. O GAQL só tem `DURING`
+  para alguns deles, e "últimos N dias" termina ontem, como na Meta.
+- **`FROM campaign` devolve campanhas sem entrega** — o `WHERE
+  metrics.impressions > 0` imita o Insights da Meta, que só lista quem entregou.
+- **Anúncio quase nunca tem `ad.name`**: o nome exibido é o primeiro título do
+  RSA (`adDisplayName`). Só `image_ad.image_url` dá prévia; pesquisa não tem.
+- **Refresh token caduca em 7 dias** se a tela de consentimento OAuth do
+  projeto estiver em modo Teste (`invalid_grant`). Publicar o app resolve.
+- **Developer token em acesso Teste** só enxerga contas de teste
+  (`DEVELOPER_TOKEN_NOT_APPROVED`). Precisa de acesso Básico para contas reais.
+- **Erros fatais vs. temporários**: 401/403 e `authenticationError`/
+  `authorizationError` são fatais; 429, 5xx e `quotaError` passam sozinhos.
+  `GoogleError.fatal` carrega a distinção, como `MetaError.fatal`.
 
 ## Armadilhas da API da Meta
 
@@ -158,6 +212,10 @@ erro sem credencial válida:
 curl -s -X POST localhost:3000/api/settings -H 'content-type: application/json' \
   -d '{"accessToken":"EAAinvalido"}'      # 400 + código 190 real da Meta
 curl -s localhost:3000/api/insights?preset=last_7d
+
+curl -s -X POST localhost:3000/api/settings/google -H 'content-type: application/json' \
+  -d '{"developerToken":"x","clientId":"x","clientSecret":"x","refreshToken":"x"}'
+                                        # 400 + invalid_client real do Google
 ```
 
 Para inspeção visual sem dados reais, crie um `app/preview/page.tsx` temporário

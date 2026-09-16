@@ -1,6 +1,8 @@
 import { Suspense } from "react";
-import { hasToken, resolveAccounts } from "@/lib/meta";
+import { resolveAccounts } from "@/lib/meta";
+import { resolveGoogleAccounts } from "@/lib/google";
 import { Dashboard } from "@/components/dashboard/dashboard";
+import type { AccountOption } from "@/components/dashboard/account-bar";
 import { Setup } from "@/components/dashboard/setup";
 
 /**
@@ -10,12 +12,20 @@ import { Setup } from "@/components/dashboard/setup";
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const options = await resolveAccounts();
+  const [meta, google] = await Promise.all([resolveAccounts(), resolveGoogleAccounts()]);
+  const options: AccountOption[] = [
+    ...meta.map((a) => ({ ...a, source: "meta" as const })),
+    ...google.map((a) => ({ ...a, source: "google" as const })),
+  ];
 
-  // Sem token ou sem conta liberada não há painel possível — a primeira tela
-  // é a de conexão, não uma mensagem mandando editar arquivo na mão.
-  if (!(await hasToken()) || !options.length) {
-    return <Setup />;
+  // Sem conta liberada em nenhuma das duas plataformas não há painel possível —
+  // a primeira tela é a de conexão, não uma mensagem mandando editar arquivo na mão.
+  if (!options.length) {
+    return (
+      <Suspense>
+        <Setup />
+      </Suspense>
+    );
   }
 
   return (
