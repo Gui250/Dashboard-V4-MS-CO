@@ -129,24 +129,39 @@ const EXPLAIN: Record<string, string> = {
   RESOURCE_EXHAUSTED: "Cota da Google Ads API esgotada por agora. Volta sozinho.",
 };
 
-async function parseError(res: Response): Promise<GoogleError> {
-  const body = (await res.json().catch(() => ({}))) as {
-    error?: {
-      message?: string;
-      status?: string;
-      details?: { errors?: { errorCode?: Record<string, string>; message?: string }[] }[];
-    };
+type ErrorBody = {
+  error?: {
+    message?: string;
+    status?: string;
+    details?: { errors?: { errorCode?: Record<string, string>; message?: string }[] }[];
   };
+};
+
+/**
+ * `searchStream` embrulha até o erro num array (`[{error: …}]`); os outros
+ * endpoints devolvem o objeto direto. Sem desembrulhar, a mensagem real se
+ * perdia e sobrava só "respondeu 400".
+ */
+async function parseError(res: Response, context = ""): Promise<GoogleError> {
+  const text = await res.text().catch(() => "");
+  let parsed: unknown = {};
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // corpo não-JSON: fica a mensagem de status
+  }
+  const body = (Array.isArray(parsed) ? (parsed[0] ?? {}) : parsed) as ErrorBody;
   const first = body.error?.details?.flatMap((d) => d.errors ?? [])[0];
   const kind = Object.keys(first?.errorCode ?? {})[0];
   const value = first?.errorCode?.[kind] ?? body.error?.status ?? res.status;
   const temporary =
     res.status === 429 || res.status >= 500 || kind === "quotaError" || kind === "internalError";
+  const detail = first?.message ?? body.error?.message;
   const message =
     EXPLAIN[String(value)] ??
-    first?.message ??
-    body.error?.message ??
-    `Google Ads API respondeu ${res.status}`;
+    (detail ? `Google Ads API (${value}): ${detail}` : `Google Ads API respondeu ${res.status}`);
+  // O terminal é o único lugar onde a consulta que falhou aparece inteira.
+  console.error("[google-ads]", res.status, context, text.slice(0, 2000));
   return new GoogleError(message, value, !temporary);
 }
 
@@ -190,7 +205,7 @@ async function gaql(customerId: string, query: string, o: GaqlOptions = {}): Pro
       body: JSON.stringify({ query }),
       cache: "no-store",
     });
-    if (!res.ok) throw await parseError(res);
+    if (!res.ok) throw await parseError(res, `customer ${customerId} login ${login || "-"} :: ${query}`);
     const chunks = (await res.json()) as { results?: GoogleRow[] }[];
     return (Array.isArray(chunks) ? chunks : [chunks]).flatMap((c) => c.results ?? []);
   };
@@ -343,7 +358,7 @@ async function discover(creds: Creds): Promise<{ accounts: StoredAccount[]; logi
       headers: { ...s.headers(""), authorization: `Bearer ${await s.token()}` },
       cache: "no-store",
     });
-    if (!res.ok) throw await parseError(res);
+    if (!res.ok) throw await parseError(res, "listAccessibleCustomers");
     const body = (await res.json()) as { resourceNames?: string[] };
     roots = (body.resourceNames ?? []).map((r) => r.replace("customers/", "")).slice(0, 10);
   }
@@ -357,12 +372,13 @@ async function discover(creds: Creds): Promise<{ accounts: StoredAccount[]; logi
       try {
         const rows = await gaql(
           root,
-          "SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'",
+          // Sem WHERE de propósito: menos campo filtrável para errar; o status é peneirado abaixo.
+          "SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.status FROM customer_client",
           { creds, login: root },
         );
         for (const row of rows) {
           const c = row.customerClient ?? {};
-          if (!c.id) continue;
+          if (!c.id || (c.status && c.status !== "ENABLED")) continue;
           // ponytail: a primeira MCC vira o login-customer-id de todas as
           // consultas. Contas em MCCs diferentes pedem um por conta.
           if (c.manager && c.id === root && !loginCustomerId) loginCustomerId = root;
