@@ -52,6 +52,12 @@ export function decimal(value: number | null | undefined, digits = 2): string {
   return value.toFixed(digits).replace(".", ",");
 }
 
+/** "2,34×". Sem pixel nem venda do WhatsApp lançada, o ROAS é `null`, não 0. */
+export function roas(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return EM_DASH;
+  return `${value.toFixed(2).replace(".", ",")}×`;
+}
+
 export function shortDate(iso: string): string {
   const [, month, day] = iso.split("-");
   return month && day ? `${day}/${month}` : iso;

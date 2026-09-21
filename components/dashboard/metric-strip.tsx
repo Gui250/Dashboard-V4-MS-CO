@@ -1,6 +1,6 @@
 "use client";
 
-import { count, money, moneyExact, percent } from "@/lib/format";
+import { count, money, moneyExact, percent, roas } from "@/lib/format";
 import type { Payload, Row } from "@/lib/meta-types";
 import { Num } from "./num";
 
@@ -37,18 +37,16 @@ export function MetricStrip({
       value: totals.costPerResult,
       format: moneyExact as never,
     },
-    {
-      label: "ROAS",
-      value: totals.roas,
-      format: ((v: number | null) =>
-        v === null ? "—" : `${v.toFixed(2).replace(".", ",")}×`) as never,
-    },
+    // Receita e ROAS já vêm combinados (pixel + venda do WhatsApp) de blendRevenue,
+    // aplicado em app/api/insights/route.ts.
+    { label: "Receita", value: totals.revenue, format: money as never },
+    { label: "ROAS", value: totals.roas, format: roas as never },
   ]
     // Google Ads não reporta alcance; um 0 ali seria mentira, não dado.
     .filter((cell) => source !== "google" || cell.label !== "Alcance");
 
   return (
-    <dl className="border-border bg-card grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-3 lg:grid-cols-5">
+    <dl className="border-border bg-card grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-3 lg:grid-cols-4">
       {cells.map((cell) => (
         <div key={cell.label} className="bg-card px-4 py-3.5">
           <dt className="text-muted-foreground truncate text-[11px]">

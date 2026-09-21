@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Painel de tráfego pago que lê a Marketing API da Meta e a Google Ads API ao
 vivo. Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui (preset `radix-nova`). Interface e
-comentários em pt-BR. Sem banco, sem worker, sem cron.
+comentários em pt-BR. Sem banco, exceto a tabela de vendas no Supabase; sem
+worker, sem cron.
 
 ## Comandos
 
@@ -179,6 +180,26 @@ Erros aqui não quebram nada — produzem números errados que parecem certos.
 - **Erro 190/102/200 é fatal** (token morto, exige ação); 4/17/613/80004 é rate
   limit e passa sozinho. `MetaError.fatal` carrega essa distinção e o SWR não
   re-tenta os fatais.
+
+## Vendas do WhatsApp
+
+Uma venda fechada por conversa no WhatsApp nunca gera evento de compra no
+pixel, então nunca entra no `purchase_roas` que a Meta devolve. `lib/sales.ts`
+lê e grava numa tabela `whatsapp_sales` do Supabase, por PostgREST puro (sem
+`@supabase/supabase-js` — são três chamadas, não vale a dependência), com a
+`service_role` key, no mesmo padrão do token da Meta: nunca vai ao browser.
+
+- **ROAS combinado = `(receita do pixel + venda do WhatsApp) ÷ spend`.**
+  `blendRevenue()` em `lib/normalize.ts` soma as receitas antes de dividir —
+  nunca soma ou tira média de dois ROAS, pelo mesmo motivo que `reach` não
+  soma entre linhas. Sem venda lançada, o ROAS continua sendo o
+  `purchase_roas` puro da Meta, para bater com o Gerenciador.
+- **Cada venda é presa a um `campaign_id`.** No nível de conjunto ou anúncio
+  não há como atribuir a receita do WhatsApp, então ali o ROAS é só do pixel —
+  a `EntityTable` avisa isso no rodapé quando o nível não é campanha.
+- Sem `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, `salesConfigured()` volta
+  `false`: o formulário em `whatsapp-sales.tsx` fica desativado e o resto do
+  painel segue funcionando normal, só com ROAS do pixel.
 
 ## Atualização
 

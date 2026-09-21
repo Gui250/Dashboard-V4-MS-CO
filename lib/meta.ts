@@ -11,7 +11,15 @@ import type {
 import { conversionsByDate, flattenActions, normalizeRow, num } from "./normalize";
 import { getCredentials, type StoredAccount } from "./credentials";
 
-export { flattenActions, median, normalizeRow, pickResult, RESULT_LABELS } from "./normalize";
+export {
+  blendRevenue,
+  flattenActions,
+  median,
+  normalizeRow,
+  pickResult,
+  RESULT_LABELS,
+  salesByCampaign,
+} from "./normalize";
 
 /**
  * A Meta recalcula insights a cada ~15 min e não muda mais depois de 28 dias.
@@ -258,7 +266,12 @@ export async function getInsights(q: Query, level: Row["level"]): Promise<Row[]>
  */
 export async function getSeries(
   q: Query,
-): Promise<{ points: SeriesPoint[]; conversionLabel: string | null }> {
+): Promise<{
+  points: SeriesPoint[];
+  conversionLabel: string | null;
+  /** Campanhas do período, sem duplicatas — alimenta o formulário de vendas do WhatsApp. */
+  campaigns: { id: string; name: string }[];
+}> {
   const common = {
     time_increment: TIME_INCREMENT[q.granularity ?? "day"],
     limit: "500",
@@ -271,9 +284,10 @@ export async function getSeries(
       ...common,
     }),
     // A linha da conta vem sem `objective`; o resultado só se decide por campanha.
+    // campaign_name vem de brinde: é o mesmo balde, sem consulta extra.
     fetchAll<InsightRow>(`act_${q.accountId}/insights`, {
       level: "campaign",
-      fields: "campaign_id,objective,actions",
+      fields: "campaign_id,campaign_name,objective,actions",
       ...common,
     }),
   ]);
@@ -286,6 +300,16 @@ export async function getSeries(
       actions: flattenActions(raw.actions),
     })),
   );
+
+  const campaigns = [
+    ...new Map(
+      campaignRows
+        .filter((raw) => raw.campaign_id)
+        .map((raw) => [raw.campaign_id!, raw.campaign_name?.trim() || raw.campaign_id!]),
+    ),
+  ]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   const points = rows
     .map((raw) => {
@@ -316,7 +340,7 @@ export async function getSeries(
     .filter((point) => point.date)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return { points, conversionLabel: conversions?.label ?? null };
+  return { points, conversionLabel: conversions?.label ?? null, campaigns };
 }
 
 /**
