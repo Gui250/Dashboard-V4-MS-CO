@@ -10,6 +10,7 @@ import {
   objective as objectiveLabel,
   percent,
   ratio,
+  roas,
 } from "@/lib/format";
 import type { Row } from "@/lib/meta-types";
 import type { Filters } from "@/hooks/use-filters";
@@ -40,6 +41,8 @@ const COLUMNS: Column[] = [
     format: moneyExact as never,
     lowerIsBetter: true,
   },
+  { key: "revenue", label: "Receita", numeric: "revenue", format: money as never },
+  { key: "roas", label: "ROAS", numeric: "roas", format: roas as never },
 ];
 
 const LEVEL_LABELS = {
@@ -52,11 +55,14 @@ export function EntityTable({
   rows,
   filters,
   medianCostPerResult,
+  salesEnabled,
   onFilterChange,
 }: {
   rows: Row[];
   filters: Filters;
   medianCostPerResult: number | null;
+  /** Vendas do WhatsApp configuradas — mostra o aviso de atribuição por campanha. */
+  salesEnabled: boolean;
   onFilterChange: (patch: Partial<Filters>) => void;
 }) {
   const objectives = useMemo(
@@ -275,6 +281,13 @@ export function EntityTable({
             </tbody>
           </table>
         </div>
+      )}
+
+      {salesEnabled && filters.level !== "campaign" && (
+        <p className="text-muted-foreground border-border border-t px-4 py-2 text-[11px]">
+          Vendas do WhatsApp só são atribuídas por campanha — em conjuntos e anúncios o
+          ROAS usa só o pixel.
+        </p>
       )}
     </section>
   );

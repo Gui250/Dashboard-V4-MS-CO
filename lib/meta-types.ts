@@ -108,6 +108,27 @@ export type Row = {
 
   actions: Record<string, number>;
   costPerAction: Record<string, number>;
+
+  /**
+   * Início/fim reais do intervalo consultado. Só a linha da conta (sem
+   * time_increment) os carrega — o balde da série usa o início do balde, que
+   * com granularidade semana/mês não é o período inteiro.
+   */
+  dateStart?: string;
+  dateStop?: string;
+};
+
+/** Venda do WhatsApp lançada à mão — nunca passa pelo pixel da Meta. */
+export type Sale = {
+  id: string;
+  accountId: string;
+  campaignId: string;
+  campaignName: string;
+  /** AAAA-MM-DD. */
+  soldOn: string;
+  amount: number;
+  note: string | null;
+  createdAt: string;
 };
 
 export type Creative = {
@@ -158,6 +179,12 @@ export type Payload = {
   ads: Row[];
   creatives: Creative[];
   platforms: PlatformSlice[];
+  /** Campanhas do período, para o seletor do formulário de vendas do WhatsApp. */
+  campaigns: { id: string; name: string }[];
+  /** Vendas do WhatsApp do período atual. */
+  sales: Sale[];
+  /** false quando SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY não estão definidas. */
+  salesEnabled: boolean;
   /** Mediana do custo por resultado entre os anúncios — base do índice de eficiência. */
   medianCostPerResult: number | null;
   fetchedAt: string;

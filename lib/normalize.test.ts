@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  blendRevenue,
   conversionRate,
   conversionsByDate,
   costFactors,
@@ -8,6 +9,7 @@ import {
   median,
   normalizeRow,
   pickResult,
+  salesByCampaign,
 } from "./normalize.ts";
 import type { InsightRow } from "./meta-types.ts";
 
@@ -258,4 +260,38 @@ test("conversões da conta somam o resultado de cada campanha", () => {
     conversionsByDate([{ campaignId: "a", date: "d1", objective: "LINK_CLICKS", actions: { link_click: 9 } }]),
     null,
   );
+});
+
+test("soma vendas do WhatsApp por campanha", () => {
+  const map = salesByCampaign([
+    { campaignId: "a", amount: 100 },
+    { campaignId: "b", amount: 50 },
+    { campaignId: "a", amount: 25.5 },
+  ]);
+  assert.equal(map.get("a"), 125.5);
+  assert.equal(map.get("b"), 50);
+  assert.equal(map.get("c"), undefined, "campanha sem venda não entra no mapa");
+  assert.deepEqual(salesByCampaign([]), new Map());
+});
+
+test("ROAS combinado soma receitas, nunca soma ROAS", () => {
+  // Só pixel: sem venda lançada, o ROAS segue sendo o purchase_roas puro da Meta.
+  const soPixel = blendRevenue({ revenue: 500, spend: 100, roas: 4.8 }, null);
+  assert.deepEqual(soPixel, { revenue: 500, roas: 4.8, whatsappRevenue: null });
+
+  // Só WhatsApp: sem receita de pixel, a venda lançada vira a receita inteira.
+  const soWhatsapp = blendRevenue({ revenue: null, spend: 100, roas: null }, 200);
+  assert.deepEqual(soWhatsapp, { revenue: 200, roas: 2, whatsappRevenue: 200 });
+
+  // Os dois somados: revenue = pixel + WhatsApp, roas = revenue / spend (não a soma dos ROAS).
+  const somados = blendRevenue({ revenue: 500, spend: 100, roas: 4.8 }, 200);
+  assert.deepEqual(somados, { revenue: 700, roas: 7, whatsappRevenue: 200 });
+
+  // Spend 0 com venda lançada: sem base para dividir, ROAS fica null.
+  const semSpend = blendRevenue({ revenue: null, spend: 0, roas: null }, 200);
+  assert.deepEqual(semSpend, { revenue: 200, roas: null, whatsappRevenue: 200 });
+
+  // Nenhum dado: null em tudo, nunca 0.
+  const nada = blendRevenue({ revenue: null, spend: 100, roas: null }, null);
+  assert.deepEqual(nada, { revenue: null, roas: null, whatsappRevenue: null });
 });

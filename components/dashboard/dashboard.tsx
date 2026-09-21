@@ -10,6 +10,7 @@ import { MetricStrip } from "./metric-strip";
 import { SeriesChart } from "./series-chart";
 import { PlatformSplit } from "./platform-split";
 import { EntityTable } from "./entity-table";
+import { WhatsappSales } from "./whatsapp-sales";
 
 /** O painel pisca de 2 em 2 minutos, como pedido. */
 const REFRESH_MS = 120_000;
@@ -118,7 +119,16 @@ export function Dashboard({ accounts }: { accounts: AccountOption[] }) {
               rows={data.rows}
               filters={filters}
               medianCostPerResult={data.medianCostPerResult}
+              salesEnabled={data.salesEnabled}
               onFilterChange={set}
+            />
+
+            <WhatsappSales
+              account={data.account.id}
+              sales={data.sales}
+              campaigns={data.campaigns}
+              salesEnabled={data.salesEnabled}
+              mutate={() => mutate()}
             />
 
             <footer className="text-muted-foreground pt-1 pb-6 text-[11px]">

@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import {
+  blendRevenue,
   getAccountMeta,
   getCreatives,
   getInsights,
   getPlatforms,
   getSeries,
   resolveAccounts,
+  salesByCampaign,
   median,
   MetaError,
   type Granularity,
   type Query,
 } from "@/lib/meta";
+import { listSales, salesConfigured } from "@/lib/sales";
 import type { Payload, Row } from "@/lib/meta-types";
 
 const LEVELS = ["campaign", "adset", "ad"] as const;
@@ -73,8 +76,14 @@ export async function GET(request: Request) {
     // Paralelo, não em batch: a doc é explícita que cada sub-requisição de um
     // batch conta separadamente para a cota, então batch só pouparia round-trips.
     // Quem realmente corta chamadas é o cache do Next em lib/meta.ts.
-    const [meta, totalsRows, { points: series, conversionLabel }, adRows, levelRows, platforms] =
-      await Promise.all([
+    const [
+      meta,
+      totalsRows,
+      { points: series, conversionLabel, campaigns },
+      adRows,
+      levelRows,
+      platforms,
+    ] = await Promise.all([
         getAccountMeta(account.id),
         getInsights(query, "account"),
         getSeries(query),
@@ -93,7 +102,6 @@ export async function GET(request: Request) {
     ).catch(() => null);
 
     const warnings: string[] = [];
-    const rows = levelRows ?? adRows;
 
     if (creatives === null) {
       warnings.push(
@@ -102,12 +110,6 @@ export async function GET(request: Request) {
     }
     if (platforms === null) {
       warnings.push("Divisão por plataforma indisponível neste período.");
-    }
-
-    if (!adRows.some((row) => row.roas !== null)) {
-      warnings.push(
-        "ROAS indisponível: nenhuma campanha desta conta tem evento de compra no pixel.",
-      );
     }
 
     const empty: Row = {
@@ -131,6 +133,43 @@ export async function GET(request: Request) {
       };
     }
 
+    // Período real do intervalo consultado: date_start/date_stop da linha da
+    // conta cobrem o período inteiro. series[0]/at(-1) é o início do balde, que
+    // com granularidade semana/mês cortaria vendas do filtro de data.
+    const periodSince = custom ? since! : (totals.dateStart ?? series[0]?.date ?? "");
+    const periodUntil = custom ? until! : (totals.dateStop ?? series.at(-1)?.date ?? "");
+
+    // Enriquecimento, não o painel: falha sozinho em vez de derrubar a tela,
+    // igual a getPlatforms/getCreatives.
+    const salesEnabled = salesConfigured();
+    const sales = salesEnabled
+      ? await listSales(account.id, periodSince, periodUntil).catch(() => null)
+      : [];
+    if (sales === null) {
+      warnings.push("Vendas do WhatsApp indisponíveis no momento.");
+    }
+    const salesList = sales ?? [];
+    const salesMap = salesByCampaign(salesList);
+    const whatsappTotal = salesList.length
+      ? salesList.reduce((sum, sale) => sum + sale.amount, 0)
+      : null;
+
+    totals = { ...totals, ...blendRevenue(totals, whatsappTotal) };
+
+    // Vendas do WhatsApp só têm campaign_id — no nível de conjunto ou anúncio
+    // não há como atribuir, então o ROAS combinado só se aplica à tabela de campanhas.
+    const rows = (levelRows ?? adRows).map((row) =>
+      level === "campaign"
+        ? { ...row, ...blendRevenue(row, salesMap.get(row.id) ?? null) }
+        : row,
+    );
+
+    if (!adRows.some((row) => row.roas !== null) && whatsappTotal === null) {
+      warnings.push(
+        "ROAS indisponível: nenhuma campanha desta conta tem evento de compra no pixel nem venda do WhatsApp lançada.",
+      );
+    }
+
     const payload: Payload = {
       account: {
         id: account.id,
@@ -139,8 +178,8 @@ export async function GET(request: Request) {
         timezone: meta.timezone_name ?? "America/Sao_Paulo",
       },
       period: {
-        since: custom ? since! : (series[0]?.date ?? ""),
-        until: custom ? until! : (series.at(-1)?.date ?? ""),
+        since: periodSince,
+        until: periodUntil,
         preset: preset ?? null,
       },
       totals,
@@ -149,6 +188,9 @@ export async function GET(request: Request) {
       ads: adRows,
       creatives: creatives ?? [],
       platforms: platforms ?? [],
+      campaigns,
+      sales: salesList,
+      salesEnabled,
       medianCostPerResult: median(
         adRows.map((row) => row.costPerResult ?? 0).filter((v) => v > 0),
       ),

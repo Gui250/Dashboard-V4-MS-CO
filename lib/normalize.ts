@@ -2,7 +2,7 @@
  * Lógica pura de normalização: sem rede, sem `server-only`, sem estado.
  * Fica separada de meta.ts justamente para rodar em `node --test`.
  */
-import type { ActionStat, InsightRow, Row } from "./meta-types";
+import type { ActionStat, InsightRow, Row, Sale } from "./meta-types";
 
 // ---------------------------------------------------------------------------
 // Normalização
@@ -264,6 +264,9 @@ export function normalizeRow(row: InsightRow, level: Row["level"]): Row {
 
     actions,
     costPerAction,
+
+    dateStart: row.date_start,
+    dateStop: row.date_stop,
   };
 }
 
@@ -348,5 +351,43 @@ export function accountFactorMedians(
         .map((r) => conversionRate(r.clicks, r.results))
         .filter((v): v is number => v !== null),
     ),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vendas do WhatsApp — ROAS combinado
+// ---------------------------------------------------------------------------
+
+/** Soma das vendas do WhatsApp por campanha, no período consultado. */
+export function salesByCampaign(sales: Pick<Sale, "campaignId" | "amount">[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const sale of sales) {
+    out.set(sale.campaignId, (out.get(sale.campaignId) ?? 0) + sale.amount);
+  }
+  return out;
+}
+
+/**
+ * Combina a receita do pixel com a venda do WhatsApp lançada à mão.
+ * `roas = revenue / spend`, nunca a soma dos dois ROAS — assim como `reach`
+ * não soma entre linhas, dividir depois de somar as receitas é o único jeito
+ * certo aqui.
+ *
+ * `whatsapp` é `null` quando nenhuma venda foi lançada para esta linha (não
+ * zero): sem lançamento, o ROAS continua sendo o `purchase_roas` puro da
+ * Meta, que é o que bate com o Gerenciador.
+ */
+export function blendRevenue(
+  row: Pick<Row, "revenue" | "spend" | "roas">,
+  whatsapp: number | null,
+): { revenue: number | null; roas: number | null; whatsappRevenue: number | null } {
+  if (whatsapp === null) {
+    return { revenue: row.revenue, roas: row.roas, whatsappRevenue: null };
+  }
+  const revenue = (row.revenue ?? 0) + whatsapp;
+  return {
+    revenue,
+    roas: row.spend > 0 ? revenue / row.spend : null,
+    whatsappRevenue: whatsapp,
   };
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { count, decimal, money, moneyExact, percent, ratio } from "@/lib/format";
+import { count, decimal, money, moneyExact, percent, ratio, roas } from "@/lib/format";
 import type { Creative, Row } from "@/lib/meta-types";
 import {
   accountFactorMedians,
@@ -453,7 +453,7 @@ function CreativeDetail({
   ];
   // ROAS só existe com evento de compra no pixel. Sem ele a Meta devolve
   // vazio, e uma célula "—" mentiria menos que um 0 mas ainda ocuparia espaço.
-  if (row.roas !== null) stats.push(["ROAS", `${decimal(row.roas)}×`]);
+  if (row.roas !== null) stats.push(["ROAS", roas(row.roas)]);
   if (row.videoPlays !== null) stats.push(["Hook rate", ratio(row.hookRate)]);
 
   return (
